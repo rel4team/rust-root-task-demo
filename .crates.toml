@@ -1,0 +1,3 @@
+[v1]
+"sel4-kernel-loader 0.1.0 (git+https://github.com/seL4/rust-sel4?rev=7a6633b85091a8fc7fbf6e500d94652b59b251e2#7a6633b85091a8fc7fbf6e500d94652b59b251e2)" = ["sel4-kernel-loader"]
+"sel4-kernel-loader-add-payload 0.1.0 (git+https://github.com/seL4/rust-sel4?rev=7a6633b85091a8fc7fbf6e500d94652b59b251e2#7a6633b85091a8fc7fbf6e500d94652b59b251e2)" = ["sel4-kernel-loader-add-payload"]
