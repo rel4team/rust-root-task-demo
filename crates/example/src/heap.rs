@@ -29,6 +29,7 @@ fn get_heap_mut_ref() -> &'static mut Heap {
 }
 
 pub fn init_heap() {
+    // sel4_root_task::debug_println!("HEAP_ALLOCATOR ptr: {:#x}", &HEAP_ALLOCATOR as *const Mutex<IndexAllocator<MAX_THREAD_SIZE>> as usize);
     if let Some(heap_id) = HEAP_ALLOCATOR.lock().allocate() {
         unsafe {
             HEAP_ID = heap_id;

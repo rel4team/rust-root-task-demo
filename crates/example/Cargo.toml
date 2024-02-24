@@ -18,4 +18,4 @@ sel4-logging = { path = "../../rust-sel4/crates/sel4-logging" }
 buddy_system_allocator = "0.6"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 spin = { version = "0.9", features = ["use_ticket_mutex"] }
-async_runtime = { path = "./async_runtime" }
+uintr = { path = "./uintr" }

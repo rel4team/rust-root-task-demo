@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::task::Wake;
+use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -49,7 +50,7 @@ pub struct Coroutine{
     /// 协程编号
     pub cid: CoroutineId,
     /// future
-    pub inner: CoroutineInner,
+    pub inner: RefCell<CoroutineInner>,
 }
 
 pub struct CoroutineInner {
@@ -65,19 +66,21 @@ impl Coroutine {
         Arc::new(
             Coroutine {
                 cid,
-                inner: CoroutineInner {
-                    future,
-                    waker: Arc::new(CoroutineWaker::new(cid)),
-                }
+                inner: RefCell::new(
+                    CoroutineInner {
+                        future,
+                        waker: Arc::new(CoroutineWaker::new(cid)),
+                    }
+                )
 
             }
         )
     }
     /// 执行
     pub fn execute(self: Arc<Self>) -> Poll<()> {
-        let mut inner = self.inner.lock();
-        let waker = inner.waker.clone();
+        let waker = self.inner.borrow().waker.clone();
         let mut context = Context::from_waker(&*waker);
-        inner.future.as_mut().poll(&mut context)
+
+        self.inner.borrow_mut().future.as_mut().poll(&mut context)
     }
 }
