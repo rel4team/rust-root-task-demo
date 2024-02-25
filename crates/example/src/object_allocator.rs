@@ -25,6 +25,20 @@ impl ObjectAllocator {
         }
     }
 
+    pub const fn default() -> Self {
+        Self {
+            untyped_list: Vec::new(),
+            untyped_start: 0,
+            empty: Range { start: 0, end: 0},
+        }
+    }
+
+    pub fn init(&mut self, bootinfo: &sel4::BootInfo) {
+        self.untyped_list = bootinfo.untyped_list().to_vec();
+        self.untyped_start = bootinfo.untyped().start;
+        self.empty = bootinfo.empty();
+    }
+
     fn get_the_first_untyped_slot(&mut self, blueprint: &sel4::ObjectBlueprint) -> LocalCPtr<Untyped> {
         {
             let idx = self
@@ -163,7 +177,7 @@ impl ObjectAllocator {
 
 
         tcb.tcb_write_all_registers(false, &mut user_context)?;
-        // tcb.tcb_set_affinity(1)?;
+        tcb.tcb_set_affinity(1)?;
         tcb.tcb_resume()?;
         Ok(tcb)
     }

@@ -10,6 +10,7 @@ use crate::coroutine::{Coroutine, CoroutineId};
 pub struct Executor {
     pub current: Option<CoroutineId>,
     pub tasks: BTreeMap<CoroutineId, Arc<Coroutine>>,
+    pub immediate_value: BTreeMap<CoroutineId, u64>,
     pub ready_queue: VecDeque<CoroutineId>,
     pub pending_set: BTreeSet<CoroutineId>,
 }
@@ -19,17 +20,18 @@ impl Executor {
         Self {
             current: None,
             tasks: BTreeMap::new(),
+            immediate_value: BTreeMap::new(),
             ready_queue: VecDeque::new(),
             pending_set: BTreeSet::new(),
         }
     }
 
-    pub fn spawn(&mut self, future: Pin<Box<dyn Future<Output=()> + 'static + Send + Sync>>) -> usize {
+    pub fn spawn(&mut self, future: Pin<Box<dyn Future<Output=()> + 'static + Send + Sync>>) -> CoroutineId {
         let task = Coroutine::new(future);
         let cid = task.cid;
         self.ready_queue.push_back(cid);
         self.tasks.insert(cid, task);
-        return cid.0;
+        return cid;
     }
 
     pub fn is_empty(&self) -> bool {
@@ -37,10 +39,13 @@ impl Executor {
     }
 
     pub fn fetch(&mut self) -> Option<Arc<Coroutine>> {
-        let cid = self.ready_queue.pop_front().unwrap();
-        let task = self.tasks.get(&cid).unwrap().clone();
-        self.current = Some(cid);
-        Some(task)
+        if let Some(cid) = self.ready_queue.pop_front() {
+            let task = self.tasks.get(&cid).unwrap().clone();
+            self.current = Some(cid);
+            Some(task)
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -53,10 +58,13 @@ impl Executor {
         self.pending_set.contains(&cid)
     }
 
-    pub fn wake(&mut self, cid: CoroutineId) {
+    pub fn wake(&mut self, cid: &CoroutineId) {
         // todo:  need to fix bugs
-        assert!(self.tasks.contains_key(&cid));
-        self.ready_queue.push_back(cid);
+        // sel4::debug_println!("[wake] cid: {:?}", cid);
+        assert!(self.tasks.contains_key(cid));
+
+        self.ready_queue.push_back(*cid);
+        self.pending_set.remove(cid);
     }
 
     #[inline]

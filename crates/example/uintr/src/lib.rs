@@ -34,7 +34,7 @@ pub const MIE_UTIE: usize = 1 << IRQ_U_TIMER;
 pub const MIE_UEIE: usize = 1 << IRQ_U_EXT;
 
 
-pub unsafe fn uipi_send(index: usize) {
+pub unsafe fn uipi_send(index: u64) {
     core::arch::asm!(".insn r 0b1111011, 0b110, 0b0000000, x0, {}, x0", in(reg) index);
 }
 pub unsafe fn uipi_read() -> usize {
@@ -98,13 +98,13 @@ pub fn register_receiver(tcb: TCB, ntfn: Notification, handler: usize) -> Result
 }
 
 pub fn register_sender(ntfn: Notification) -> Result<u64, Error> {
-    sel4::debug_println!("register_sender");
+    // sel4::debug_println!("register_sender");
     ntfn.register_sender()?;
     unsafe {
         Ok(with_ipc_buffer(|buffer| {
-            let a = buffer.inner().uintr_flag;
-            sel4::debug_println!("buffer ptr: {:#x}", buffer as *const IPCBuffer as usize);
-            a
+            buffer.inner().uintr_flag
+            // sel4::debug_println!("buffer ptr: {:#x}", buffer as *const IPCBuffer as usize);
+            // a
         }))
     }
     // Ok(1)

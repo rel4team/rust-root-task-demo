@@ -1,42 +1,90 @@
-// use crate::coroutine::CoroutineId;
-// use sel4::MessageInfo;
-// use super::utils::BitMap64;
-// pub const MAX_ITEM_NUM: usize = 64;
-// #[repr(C)]
-// #[derive(Clone, Copy)]
-// pub struct IPCItem {
-//     pub cid: CoroutineId,
-//     pub msg_info: usize,
-// }
-//
-// impl Default for IPCItem {
-//     fn default() -> Self {
-//         Self {
-//             cid: CoroutineId(0),
-//             msg_info: 0,
-//         }
-//     }
-// }
-//
-// pub struct ItemsQueue {
-//     pub bitmap: BitMap64,
-//     pub items: [IPCItem; MAX_ITEM_NUM],
-// }
-//
-// impl ItemsQueue {
-//     pub fn new() -> Self {
-//
-//         Self {
-//             bitmap: BitMap64::new(),
-//             items: [IPCItem::default(); MAX_ITEM_NUM]
-//         }
-//     }
-// }
-//
-// #[repr(C)]
-// pub struct NewBuffer {
-//     pub recv_req_status: bool,
-//     pub recv_reply_status: bool,
-//     pub req_items: ItemsQueue,
-//     pub res_items: ItemsQueue,
-// }
+use core::ops::Index;
+use sel4::MessageInfo;
+use crate::coroutine::CoroutineId;
+use super::utils::BitMap64;
+pub const MAX_ITEM_NUM: usize = 64;
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct IPCItem {
+    pub cid: CoroutineId,
+    pub msg_info: u64,
+}
+
+impl IPCItem {
+    pub const fn new() -> Self {
+        Self {
+            cid: CoroutineId(0),
+            msg_info: 0,
+        }
+    }
+
+    pub fn from(cid: CoroutineId, msg: u64) -> Self {
+        Self {
+            cid,
+            msg_info: msg
+        }
+    }
+}
+
+pub struct ItemsQueue {
+    pub bitmap: BitMap64,
+    pub items: [IPCItem; MAX_ITEM_NUM],
+}
+
+
+impl ItemsQueue {
+    pub const fn new() -> Self {
+        Self {
+            bitmap: BitMap64::new(),
+            items: [IPCItem::new(); MAX_ITEM_NUM]
+        }
+    }
+
+    #[inline]
+    pub fn write_free_item(&mut self, item: &IPCItem) -> Result<(), ()> {
+        let index = self.bitmap.find_first_zero();
+        // sel4::debug_println!("[write_free_item] index: {}", index);
+        return {
+            if index < MAX_ITEM_NUM {
+                self.items[index] = item.clone();
+                self.bitmap.set(index);
+                Ok(())
+            } else {
+                Err(())
+            }
+        }
+    }
+    #[inline]
+    pub fn get_first_item(&mut self) -> Option<IPCItem> {
+        let index = self.bitmap.find_first_one();
+        // sel4::debug_println!("[get_first_item] index: {}", index);
+        return {
+            if index < MAX_ITEM_NUM {
+                let ans = Some(self.items[index]);
+                self.bitmap.clear(index);
+                ans
+            } else {
+                None
+            }
+        }
+    }
+}
+
+#[repr(align(4096))]
+pub struct NewBuffer {
+    pub recv_req_status: bool,
+    pub recv_reply_status: bool,
+    pub req_items: ItemsQueue,
+    pub res_items: ItemsQueue,
+}
+
+impl NewBuffer {
+    pub const fn new() -> Self {
+        Self {
+            recv_req_status: false,
+            recv_reply_status: false,
+            req_items: ItemsQueue::new(),
+            res_items: ItemsQueue::new(),
+        }
+    }
+}
