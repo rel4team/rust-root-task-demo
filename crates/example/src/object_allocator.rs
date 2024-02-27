@@ -1,12 +1,16 @@
 use alloc::vec::Vec;
 use core::arch::asm;
 use core::ops::Range;
+use spin::Mutex;
 use sel4::{CNodeCapData, InitCSpaceSlot, LocalCPtr, UntypedDesc};
 use sel4::cap_type::Untyped;
 use sel4::ObjectBlueprintArch;
 use sel4::UserContext;
 use sel4_root_task::{abort, debug_println};
 use sel4::{VMAttributes, CapRights};
+
+
+pub static GLOBAL_OBJ_ALLOCATOR: Mutex<ObjectAllocator> = Mutex::new(ObjectAllocator::default());
 
 pub struct ObjectAllocator {
     untyped_list: Vec<UntypedDesc>,

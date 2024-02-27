@@ -7,7 +7,8 @@ pub const MAX_ITEM_NUM: usize = 64;
 #[derive(Clone, Copy, Debug)]
 pub struct IPCItem {
     pub cid: CoroutineId,
-    pub msg_info: u64,
+    pub msg_info: u32,
+    pub extend_msg: [u16; 8],
 }
 
 impl IPCItem {
@@ -15,13 +16,15 @@ impl IPCItem {
         Self {
             cid: CoroutineId(0),
             msg_info: 0,
+            extend_msg: [0u16; 8],
         }
     }
 
-    pub fn from(cid: CoroutineId, msg: u64) -> Self {
+    pub fn from(cid: CoroutineId, msg: u32) -> Self {
         Self {
             cid,
-            msg_info: msg
+            msg_info: msg,
+            extend_msg: [0u16; 8],
         }
     }
 }

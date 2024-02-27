@@ -4,30 +4,30 @@ use alloc::task::Wake;
 use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
 
 #[derive(Eq, PartialEq, Debug, Clone, Copy, Hash, Ord, PartialOrd)]
-pub struct CoroutineId(pub usize);
+pub struct CoroutineId(pub u32);
 
 impl CoroutineId {
     /// 生成新的协程 Id
     pub fn generate() -> CoroutineId {
         // 任务编号计数器，任务编号自增
-        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-        if id > usize::MAX / 2 {
+        if id > u32::MAX / 2 {
             // TODO: 不让系统 Panic
             panic!("too many tasks!")
         }
         CoroutineId(id)
     }
     /// 根据 usize 生成协程 Id
-    pub fn from_val(v: usize) -> Self {
+    pub fn from_val(v: u32) -> Self {
         Self(v)
     }
     /// 获取协程 Id 的 usize
-    pub fn get_val(&self) -> usize {
+    pub fn get_val(&self) -> u32 {
         self.0
     }
 }
