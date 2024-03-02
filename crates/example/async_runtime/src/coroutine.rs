@@ -4,23 +4,23 @@ use alloc::task::Wake;
 use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
+use sel4::get_clock;
+use crate::utils::IndexAllocator;
 
 #[derive(Eq, PartialEq, Debug, Clone, Copy, Hash, Ord, PartialOrd)]
 pub struct CoroutineId(pub u32);
+
+
+#[thread_local]
+static mut CID_ALLOCATOR: IndexAllocator<4096> = IndexAllocator::new();
 
 impl CoroutineId {
     /// 生成新的协程 Id
     pub fn generate() -> CoroutineId {
         // 任务编号计数器，任务编号自增
-        static COUNTER: AtomicU32 = AtomicU32::new(0);
-        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-        if id > u32::MAX / 2 {
-            // TODO: 不让系统 Panic
-            panic!("too many tasks!")
-        }
-        CoroutineId(id)
+        let cid = unsafe { CID_ALLOCATOR.allocate() };
+        CoroutineId(cid.unwrap() as u32)
     }
     /// 根据 usize 生成协程 Id
     pub fn from_val(v: u32) -> Self {
@@ -29,6 +29,10 @@ impl CoroutineId {
     /// 获取协程 Id 的 usize
     pub fn get_val(&self) -> u32 {
         self.0
+    }
+
+    pub fn release(&self) {
+        unsafe { CID_ALLOCATOR.release(self.0 as usize) }
     }
 }
 
@@ -72,11 +76,11 @@ impl Coroutine {
                         waker: Arc::new(CoroutineWaker::new(cid)),
                     }
                 )
-
             }
         )
     }
     /// 执行
+    #[inline]
     pub fn execute(self: Arc<Self>) -> Poll<()> {
         let waker = self.inner.borrow().waker.clone();
         let mut context = Context::from_waker(&*waker);

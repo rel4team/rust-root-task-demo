@@ -5,10 +5,13 @@ use core::{
     alloc::{GlobalAlloc, Layout}, borrow::Borrow, ptr::NonNull
 };
 
+use sel4::get_clock;
+
 use buddy_system_allocator::Heap;
 use async_runtime::utils::IndexAllocator;
+use sel4_root_task::debug_println;
 
-const HEAP_SIZE: usize = 1 << 20;
+const HEAP_SIZE: usize = 1 << 24;
 const MAX_THREAD_SIZE: usize = 1;
 
 // #[thread_local]
@@ -57,13 +60,20 @@ static GLOBAL: Global = Global;
 unsafe impl GlobalAlloc for Global {
     #[inline]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        return HEAP.lock().alloc(layout).ok()
+        // let start = get_clock();
+        let c = HEAP.lock().alloc(layout).ok()
         .map_or(0 as *mut u8, |allocation| allocation.as_ptr());
+        // let end = get_clock();
+        // debug_println!("alloc: {}", end - start);
+        c
     }
 
     #[inline]
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // let start = get_clock();
         HEAP.lock().dealloc(NonNull::new_unchecked(ptr), layout);
+        // let end = get_clock();
+        // debug_println!("dealloc: {}", end - start);
         return;
     }
 }

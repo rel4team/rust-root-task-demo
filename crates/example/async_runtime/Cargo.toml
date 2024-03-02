@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 sel4 = { path = "../../../rust-sel4/crates/sel4" }
+hashbrown = { version = "0.12.3" }
+lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+spin = { version = "0.9", features = ["use_ticket_mutex"] }

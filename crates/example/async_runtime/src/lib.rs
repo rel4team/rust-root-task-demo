@@ -11,6 +11,7 @@ pub mod utils;
 use alloc::boxed::Box;
 use core::future::Future;
 use core::pin::Pin;
+use lazy_static::lazy_static;
 pub use executor::*;
 pub use new_buffer::*;
 pub use coroutine::*;
@@ -28,6 +29,7 @@ pub fn coroutine_spawn(future: Pin<Box<dyn Future<Output=()> + 'static + Send + 
 
 #[inline]
 pub fn coroutine_wake(cid: &CoroutineId) {
+    // sel4::debug_println!("coroutine_wake: {}, {:#x}", cid.0, unsafe { &EXECUTOR as *const Executor as usize });
     unsafe {
         EXECUTOR.wake(cid);
     }
@@ -35,8 +37,9 @@ pub fn coroutine_wake(cid: &CoroutineId) {
 
 #[inline]
 pub fn coroutine_wake_with_value(cid: &CoroutineId, value: u64) {
+    // sel4::debug_println!("coroutine_wake_with_value");
     unsafe {
-        EXECUTOR.immediate_value.insert(*cid, value);
+        EXECUTOR.immediate_value[cid.0 as usize] = Some(value);
         EXECUTOR.wake(cid);
     }
 }
@@ -44,7 +47,9 @@ pub fn coroutine_wake_with_value(cid: &CoroutineId, value: u64) {
 #[inline]
 pub fn coroutine_get_immediate_value(cid: &CoroutineId) -> Option<u64> {
     unsafe {
-        EXECUTOR.immediate_value.remove(cid)
+        let ans = EXECUTOR.immediate_value[cid.0 as usize];
+        EXECUTOR.immediate_value[cid.0 as usize] = None;
+        ans
     }
 }
 
@@ -69,6 +74,12 @@ pub fn coroutine_run_until_blocked() {
     }
 }
 
+#[inline]
+pub fn coroutine_is_empty() -> bool {
+    unsafe {
+        EXECUTOR.is_empty()
+    }
+}
 
 #[inline]
 pub fn coroutine_run_until_complete() {
@@ -76,4 +87,3 @@ pub fn coroutine_run_until_complete() {
         EXECUTOR.run_until_complete()
     }
 }
-

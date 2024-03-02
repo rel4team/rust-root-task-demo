@@ -1,8 +1,11 @@
 use core::ops::Index;
+use core::sync::atomic::AtomicBool;
 use sel4::MessageInfo;
+use crate::utils::BitMap;
 use crate::coroutine::CoroutineId;
-use super::utils::BitMap64;
-pub const MAX_ITEM_NUM: usize = 64;
+use super::utils::{BitMap64, BitMap4096};
+use sel4::get_clock;
+pub const MAX_ITEM_NUM: usize = 4096;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct IPCItem {
@@ -30,7 +33,7 @@ impl IPCItem {
 }
 
 pub struct ItemsQueue {
-    pub bitmap: BitMap64,
+    pub bitmap: BitMap4096,
     pub items: [IPCItem; MAX_ITEM_NUM],
 }
 
@@ -38,7 +41,7 @@ pub struct ItemsQueue {
 impl ItemsQueue {
     pub const fn new() -> Self {
         Self {
-            bitmap: BitMap64::new(),
+            bitmap: BitMap4096::new(),
             items: [IPCItem::new(); MAX_ITEM_NUM]
         }
     }
@@ -75,17 +78,18 @@ impl ItemsQueue {
 
 #[repr(align(4096))]
 pub struct NewBuffer {
-    pub recv_req_status: bool,
-    pub recv_reply_status: bool,
+    pub recv_req_status: AtomicBool,
+    pub recv_reply_status: AtomicBool,
     pub req_items: ItemsQueue,
     pub res_items: ItemsQueue,
+    pub lock:
 }
 
 impl NewBuffer {
     pub const fn new() -> Self {
         Self {
-            recv_req_status: false,
-            recv_reply_status: false,
+            recv_req_status: AtomicBool::new(false),
+            recv_reply_status: AtomicBool::new(false),
             req_items: ItemsQueue::new(),
             res_items: ItemsQueue::new(),
         }
