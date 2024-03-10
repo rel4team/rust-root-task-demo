@@ -1,13 +1,11 @@
 use alloc::collections::BTreeMap;
 use core::sync::atomic::Ordering::SeqCst;
-use async_runtime::{coroutine_get_current, coroutine_wake, coroutine_wake_with_value, CoroutineId, get_executor_ptr, IPCItem, NewBuffer};
+use async_runtime::{coroutine_get_current, coroutine_wake, coroutine_wake_with_value, CoroutineId, IPCItem, NewBuffer};
 use async_runtime::utils::{IndexAllocator, yield_now};
-use sel4::{CPtr, CPtrBits, MessageInfo, Notification, r#yield};
+use sel4::{CPtr, CPtrBits, MessageInfo, Notification};
 use sel4::sys::invocation_label;
 use sel4::ObjectBlueprint;
-use sel4_logging::log::debug;
 use sel4::get_clock;
-use sel4_root_task::debug_println;
 use uintr::{register_sender, uintr_frame, uipi_send};
 
 pub const MAX_UINT_VEC: usize = 64;

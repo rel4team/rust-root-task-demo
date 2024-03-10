@@ -1,10 +1,8 @@
 #![no_std]
 
 use core::arch::global_asm;
-use sel4::{TCB, Notification, Error, IPCBuffer};
+use sel4::{TCB, Notification, Error};
 use sel4::with_ipc_buffer;
-#[macro_use]
-mod macros;
 
 
 global_asm!(include_str!("uintr.asm"));

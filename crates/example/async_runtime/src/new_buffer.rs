@@ -1,10 +1,11 @@
 use core::ops::Index;
 use core::sync::atomic::AtomicBool;
-use sel4::MessageInfo;
+use spin::Mutex;
 use crate::utils::BitMap;
 use crate::coroutine::CoroutineId;
 use super::utils::{BitMap64, BitMap4096};
 use sel4::get_clock;
+use sel4::r#yield;
 pub const MAX_ITEM_NUM: usize = 4096;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -35,6 +36,7 @@ impl IPCItem {
 pub struct ItemsQueue {
     pub bitmap: BitMap4096,
     pub items: [IPCItem; MAX_ITEM_NUM],
+    lock: Mutex<()>,
 }
 
 
@@ -42,35 +44,49 @@ impl ItemsQueue {
     pub const fn new() -> Self {
         Self {
             bitmap: BitMap4096::new(),
-            items: [IPCItem::new(); MAX_ITEM_NUM]
+            items: [IPCItem::new(); MAX_ITEM_NUM],
+            lock: Mutex::new(())
         }
     }
 
     #[inline]
     pub fn write_free_item(&mut self, item: &IPCItem) -> Result<(), ()> {
-        let index = self.bitmap.find_first_zero();
-        // sel4::debug_println!("[write_free_item] index: {}", index);
-        return {
-            if index < MAX_ITEM_NUM {
-                self.items[index] = item.clone();
-                self.bitmap.set(index);
-                Ok(())
+        loop {
+            if let Some(_lock) = self.lock.try_lock() {
+                let index = self.bitmap.find_first_zero();
+                // sel4::debug_println!("[write_free_item] index: {}", index);
+                return {
+                    if index < MAX_ITEM_NUM {
+                        self.items[index] = item.clone();
+                        self.bitmap.set(index);
+                        Ok(())
+                    } else {
+                        Err(())
+                    }
+                }
             } else {
-                Err(())
+                r#yield();
             }
         }
+
     }
     #[inline]
     pub fn get_first_item(&mut self) -> Option<IPCItem> {
-        let index = self.bitmap.find_first_one();
-        // sel4::debug_println!("[get_first_item] index: {}", index);
-        return {
-            if index < MAX_ITEM_NUM {
-                let ans = Some(self.items[index]);
-                self.bitmap.clear(index);
-                ans
+        loop {
+            if let Some(_lock) = self.lock.try_lock() {
+                let index = self.bitmap.find_first_one();
+                // sel4::debug_println!("[get_first_item] index: {}", index);
+                return {
+                    if index < MAX_ITEM_NUM {
+                        let ans = Some(self.items[index]);
+                        self.bitmap.clear(index);
+                        ans
+                    } else {
+                        None
+                    }
+                }
             } else {
-                None
+                r#yield();
             }
         }
     }
@@ -82,7 +98,6 @@ pub struct NewBuffer {
     pub recv_reply_status: AtomicBool,
     pub req_items: ItemsQueue,
     pub res_items: ItemsQueue,
-    pub lock:
 }
 
 impl NewBuffer {

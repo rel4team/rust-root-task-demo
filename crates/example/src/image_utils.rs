@@ -1,17 +1,35 @@
 use core::ops::Range;
 use core::ptr;
-use sel4::{InitCSpaceSlot, SizedFrameType};
+use sel4::{InitCSpaceSlot, LocalCPtr, SizedFrameType};
 
-pub fn get_user_image_frame_slot(
-    bootinfo: &sel4::BootInfo,
-    addr: usize,
-) -> InitCSpaceSlot {
-    assert_eq!(addr % GRANULE_SIZE, 0);
-    let user_image_footprint = get_user_image_footprint();
-    let num_user_frames = bootinfo.user_image_frames().len();
-    assert_eq!(user_image_footprint.len(), num_user_frames * GRANULE_SIZE);
-    let ix = (addr - user_image_footprint.start) / GRANULE_SIZE;
-    bootinfo.user_image_frames().start + ix
+
+pub struct UserImageUtils;
+
+static mut BOOT_INFO: usize = 0;
+impl UserImageUtils {
+    pub fn init(&self, bootinfo: &sel4::BootInfo) {
+        unsafe {
+            BOOT_INFO = bootinfo as *const sel4::BootInfo as usize;
+        }
+    }
+    pub fn get_user_image_frame_slot(&self, vaddr: usize) -> InitCSpaceSlot {
+        assert_eq!(vaddr % GRANULE_SIZE, 0);
+        let user_image_footprint = get_user_image_footprint();
+        let bootinfo = unsafe {
+            &*(BOOT_INFO as *const sel4::BootInfo)
+        };
+        let num_user_frames = bootinfo.user_image_frames().len();
+        assert_eq!(user_image_footprint.len(), num_user_frames * GRANULE_SIZE);
+        let ix = (vaddr - user_image_footprint.start) / GRANULE_SIZE;
+        bootinfo.user_image_frames().start + ix
+    }
+
+    pub fn get_user_image_frame_paddr(&self, vaddr: usize) -> usize {
+        let frame_cap = self.get_user_image_frame_slot(vaddr);
+        let frame = LocalCPtr::<sel4::cap_type::_4KPage>::from_bits(frame_cap as u64);
+        frame.frame_get_address().unwrap()
+    }
+
 }
 
 fn get_user_image_footprint() -> Range<usize> {

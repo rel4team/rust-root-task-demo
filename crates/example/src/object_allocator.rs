@@ -2,12 +2,12 @@ use alloc::vec::Vec;
 use core::arch::asm;
 use core::ops::Range;
 use spin::Mutex;
-use sel4::{CNodeCapData, CPtr, CPtrBits, InitCSpaceSlot, LocalCPtr, UntypedDesc};
+use sel4::{CNodeCapData, CPtrBits, InitCSpaceSlot, LocalCPtr, UntypedDesc};
 use sel4::cap_type::Untyped;
 use sel4::ObjectBlueprintArch;
 use sel4::UserContext;
-use sel4_root_task::{abort, debug_println};
-use sel4::{VMAttributes, CapRights};
+use sel4_root_task::debug_println;
+use sel4::VMAttributes;
 
 
 pub static GLOBAL_OBJ_ALLOCATOR: Mutex<ObjectAllocator> = Mutex::new(ObjectAllocator::default());
@@ -199,7 +199,7 @@ impl ObjectAllocator {
         debug_println!("write register: {:?}", user_context);
         tcb.tcb_write_all_registers(false, &mut user_context)?;
 
-        tcb.tcb_set_affinity(1)?;
+        // tcb.tcb_set_affinity(1)?;
         tcb.tcb_resume()?;
         Ok(tcb)
     }

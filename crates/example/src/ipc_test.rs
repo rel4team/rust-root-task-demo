@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 use core::sync::atomic::Ordering::SeqCst;
-use async_runtime::{coroutine_get_current, coroutine_is_empty, coroutine_run_until_blocked, coroutine_run_until_complete, coroutine_spawn, coroutine_wake, Executor, get_executor_ptr, NewBuffer};
+use async_runtime::{coroutine_is_empty, coroutine_run_until_blocked, coroutine_spawn, Executor, get_executor_ptr, NewBuffer};
 use async_runtime::utils::yield_now;
 use sel4::{IPCBuffer, LocalCPtr, MessageInfo};
 use sel4::cap_type::{Endpoint, TCB};
@@ -9,10 +9,10 @@ use sel4::get_clock;
 use sel4::r#yield;
 use uintr::{register_receiver, register_sender, uipi_send};
 use crate::async_lib::{AsyncArgs, recv_reply_coroutine, register_recv_cid, register_sender_buffer, seL4_Call, SenderID, uintr_handler};
-use crate::image_utils::get_user_image_frame_slot;
+use crate::image_utils::UserImageUtils;
 use crate::object_allocator::{GLOBAL_OBJ_ALLOCATOR, IPC_BUFFER};
 
-static SEND_NUM: usize = 4096;
+static SEND_NUM: usize = 2048;
 
 static COROUTINE_NUM: usize = 64;
 
@@ -123,7 +123,8 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
     };
     debug_println!("exec size: {}", core::mem::size_of::<Executor>());
     let ipc_buffer_vaddr = unsafe { IPC_BUFFER.get_ptr() };
-    let ipc_buffer_cap = get_user_image_frame_slot(_bootinfo, unsafe { IPC_BUFFER.get_ptr() }) as u64;
+    // let ipc_buffer_cap = get_user_image_frame_slot(_bootinfo, unsafe { IPC_BUFFER.get_ptr() }) as u64;
+    let ipc_buffer_cap = UserImageUtils.get_user_image_frame_slot(unsafe { IPC_BUFFER.get_ptr() }) as u64;
     let mut async_args = AsyncArgs::new();
 
     let unbadged_notification = obj_allocator.lock().alloc_ntfn().unwrap();
@@ -202,7 +203,8 @@ pub fn sync_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
         &GLOBAL_OBJ_ALLOCATOR
     };
     let ipc_buffer_vaddr = unsafe { IPC_BUFFER.get_ptr() };
-    let ipc_buffer_cap = get_user_image_frame_slot(_bootinfo, unsafe { IPC_BUFFER.get_ptr() }) as u64;
+    // let ipc_buffer_cap = get_user_image_frame_slot(_bootinfo, unsafe { IPC_BUFFER.get_ptr() }) as u64;
+    let ipc_buffer_cap = UserImageUtils.get_user_image_frame_paddr(unsafe { IPC_BUFFER.get_ptr() }) as u64;
     let endpoint = obj_allocator.lock().alloc_ep()?;
     let _ = obj_allocator.lock().create_thread(sync_helper_thread, endpoint.bits() as usize, 255, ipc_buffer_cap, ipc_buffer_vaddr)?;
     // let reply_msg = MessageInfo::new(2, 0, 0, 1);

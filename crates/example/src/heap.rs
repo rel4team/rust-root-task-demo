@@ -8,8 +8,6 @@ use core::{
 use sel4::get_clock;
 
 use buddy_system_allocator::Heap;
-use async_runtime::utils::IndexAllocator;
-use sel4_root_task::debug_println;
 
 const HEAP_SIZE: usize = 1 << 24;
 const MAX_THREAD_SIZE: usize = 1;
