@@ -11,15 +11,23 @@ use sel4::cap_type::{Untyped, MegaPage, IRQHandler, Notification};
 use sel4::{FrameSize, ObjectBlueprint, ObjectBlueprintArch, VMAttributes, CapRights};
 use sel4_logging::log::debug;
 use sel4_root_task::debug_println;
-use crate::device::NET_DEVICE;
+use crate::device::net::{NET_DEVICE, virtio_net};
 use crate::image_utils::UserImageUtils;
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 
 pub static NET_DEVICE_ADDR: usize = 0x10008000;
-const NET_QUEUE_SIZE: usize = 32;
-const NET_BUFFER_LEN: usize = 4096;
+pub(crate) const NET_QUEUE_SIZE: usize = 4;
+pub(crate) const NET_BUFFER_LEN: usize = 4096;
 pub const PLIC_NET_IRQ: u64 = 1;
 pub struct VirtioHal;
+
+pub static mut VIRT_IO_NET_DEVICE: usize = 0;
+
+pub fn get_net_device() -> &'static mut Mutex<VirtIONet<VirtioHal, MmioTransport, NET_QUEUE_SIZE>> {
+    unsafe {
+        &mut *(VIRT_IO_NET_DEVICE as *mut Mutex<VirtIONet<VirtioHal, MmioTransport, NET_QUEUE_SIZE>>)
+    }
+}
 
 unsafe impl Hal for VirtioHal {
     fn dma_alloc(pages: usize, _direction: BufferDirection) -> (usize, NonNull<u8>) {
@@ -63,6 +71,7 @@ unsafe impl Hal for VirtioHal {
     }
 }
 
+
 pub fn init(boot_info: &BootInfo) {
     init_mmio(boot_info);
     unsafe {
@@ -70,22 +79,13 @@ pub fn init(boot_info: &BootInfo) {
         let transport = MmioTransport::new(header).unwrap();
         debug!("NET_DEVICE_ADDR: {:#x}", NET_DEVICE_ADDR);
         let virtio = VirtIONet::<VirtioHal, MmioTransport, NET_QUEUE_SIZE>
-        ::new(transport, NET_BUFFER_LEN)
+        ::new(transport, virtio_net::NET_BUFFER_LEN)
             .expect("can't create net device by virtio");
         debug!("hello");
         let net = Arc::new(Mutex::new(virtio));
-        NET_DEVICE = net.as_ref() as *const Mutex<VirtIONet<VirtioHal, MmioTransport, NET_QUEUE_SIZE>> as usize;
+        VIRT_IO_NET_DEVICE = net.as_ref() as *const Mutex<VirtIONet<VirtioHal, MmioTransport, NET_QUEUE_SIZE>> as usize;
         core::mem::forget(net);
     }
-    let (net_handler, net_ntfn) = init_interrupt_handler();
-    loop {
-        net_ntfn.wait();
-        net_interrupt_handler(net_handler);
-    }
-}
-
-fn net_interrupt_handler(_handler: LocalCPtr<IRQHandler>) {
-    debug!("net_interrupt_handler");
 }
 
 fn init_mmio(boot_info: &BootInfo) {
@@ -157,17 +157,4 @@ fn init_mmio(boot_info: &BootInfo) {
         }
 
     }
-}
-
-fn init_interrupt_handler() -> (LocalCPtr<IRQHandler>, LocalCPtr<Notification>) {
-    let obj_allocator = unsafe {
-        &GLOBAL_OBJ_ALLOCATOR
-    };
-    let irq_ctrl = BootInfo::irq_control();
-    let irq_handler = BootInfo::init_cspace_local_cptr::<IRQHandler>(obj_allocator.lock().get_empty_slot());
-    irq_ctrl.irq_control_get(PLIC_NET_IRQ, &BootInfo::init_thread_cnode().relative(irq_handler)).unwrap();
-
-    let handler_ntfn = obj_allocator.lock().alloc_ntfn().unwrap();
-    irq_handler.irq_handler_set_notification(handler_ntfn).unwrap();
-    (irq_handler, handler_ntfn)
 }

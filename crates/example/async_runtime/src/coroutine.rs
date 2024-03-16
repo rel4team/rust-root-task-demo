@@ -8,7 +8,7 @@ use core::task::{Context, Poll, Waker};
 use sel4::get_clock;
 use crate::utils::IndexAllocator;
 
-#[derive(Eq, PartialEq, Debug, Clone, Copy, Hash, Ord, PartialOrd)]
+#[derive(Default, Eq, PartialEq, Debug, Clone, Copy, Hash, Ord, PartialOrd)]
 pub struct CoroutineId(pub u32);
 
 
@@ -53,6 +53,8 @@ impl Wake for CoroutineWaker {
 pub struct Coroutine{
     /// 协程编号
     pub cid: CoroutineId,
+    // 优先级
+    pub prio: usize,
     /// future
     pub inner: RefCell<CoroutineInner>,
 }
@@ -65,7 +67,7 @@ pub struct CoroutineInner {
 
 impl Coroutine {
     /// 生成协程
-    pub fn new(future: Pin<Box<dyn Future<Output=()> + Send + Sync>>) -> Arc<Self> {
+    pub fn new(future: Pin<Box<dyn Future<Output=()> + Send + Sync>>, prio: usize) -> Arc<Self> {
         let cid = CoroutineId::generate();
         Arc::new(
             Coroutine {
@@ -76,6 +78,7 @@ impl Coroutine {
                         waker: Arc::new(CoroutineWaker::new(cid)),
                     }
                 )
+                ,prio
             }
         )
     }

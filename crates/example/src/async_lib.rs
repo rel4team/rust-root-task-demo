@@ -1,6 +1,7 @@
 use alloc::collections::BTreeMap;
+use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::SeqCst;
-use async_runtime::{coroutine_get_current, coroutine_wake, coroutine_wake_with_value, CoroutineId, IPCItem, NewBuffer};
+use async_runtime::{coroutine_delay_wake, coroutine_get_current, coroutine_wake_with_value, CoroutineId, IPCItem, NewBuffer};
 use async_runtime::utils::{IndexAllocator, yield_now};
 use sel4::{CPtr, CPtrBits, MessageInfo, Notification};
 use sel4::sys::invocation_label;
@@ -13,6 +14,8 @@ pub const MAX_UINT_VEC: usize = 64;
 #[thread_local]
 static mut UINT_VEC_ALLOCATOR: IndexAllocator<MAX_UINT_VEC> = IndexAllocator::new();
 
+#[thread_local]
+pub static mut UINT_TRIGGER: usize = 0;
 
 pub type SenderID = i64;
 #[thread_local]
@@ -53,9 +56,10 @@ pub fn register_async_syscall_buffer(new_buffer: &'static mut NewBuffer) {
 }
 
 pub fn wake_recv_coroutine(vec: usize) -> Result<(), ()> {
+    // sel4::debug_println!("Hello, wake_recv_coroutine!: {}", vec);
     unsafe {
         if let Some(cid) = WAKE_MAP.get(&vec) {
-            coroutine_wake(cid);
+            coroutine_delay_wake(cid);
             return Ok(());
         }
         return Err(())
@@ -130,11 +134,15 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
 }
 
 pub fn uintr_handler(frame: *mut uintr_frame, irqs: usize) -> usize {
-    // debug_println!("Hello, uintr_handler!: {}, exec_ptr: {:#x}", irqs, get_executor_ptr());
+    unsafe {
+        UINT_TRIGGER += 1;
+    }
+    // sel4::debug_println!("Hello, uintr_handler!: {}", irqs);
     let mut local = irqs;
     let mut bit_index = 0;
     while local != 0 {
         if local & 1 == 1 {
+            // sel4::debug_println!("Hello, uintr_handler!: {}", irqs);
             wake_recv_coroutine(bit_index).unwrap();
         }
         local >>= 1;
@@ -157,7 +165,7 @@ fn convert_option_mut_ref<T>(ptr: usize) -> Option<&'static mut T> {
 pub async fn seL4_Call_with_item(sender_id: &SenderID, item: &IPCItem) -> Result<MessageInfo, ()> {
     // let start = get_clock();
     if let Some(new_buffer) = unsafe { convert_option_mut_ref::<NewBuffer>(SENDER_MAP[*sender_id as usize]) } {
-        new_buffer.req_items.write_free_item(&item)?;
+        new_buffer.req_items.write_free_item(&item).unwrap();
         // debug_println!("seL4_Call_with_item: {}", get_clock() - start);
         if new_buffer.recv_req_status.load(SeqCst) == false {
             new_buffer.recv_req_status.store(true, SeqCst);

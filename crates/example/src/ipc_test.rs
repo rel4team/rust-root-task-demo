@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 use core::sync::atomic::Ordering::SeqCst;
+use spin::Lazy;
 use async_runtime::{coroutine_is_empty, coroutine_run_until_blocked, coroutine_spawn, Executor, get_executor_ptr, NewBuffer};
 use async_runtime::utils::yield_now;
 use sel4::{IPCBuffer, LocalCPtr, MessageInfo};
@@ -8,16 +9,16 @@ use sel4_root_task::debug_println;
 use sel4::get_clock;
 use sel4::r#yield;
 use uintr::{register_receiver, register_sender, uipi_send};
-use crate::async_lib::{AsyncArgs, recv_reply_coroutine, register_recv_cid, register_sender_buffer, seL4_Call, SenderID, uintr_handler};
+use crate::async_lib::{AsyncArgs, recv_reply_coroutine, register_recv_cid, register_sender_buffer, seL4_Call, SenderID, UINT_TRIGGER, uintr_handler};
 use crate::image_utils::UserImageUtils;
 use crate::object_allocator::{GLOBAL_OBJ_ALLOCATOR, IPC_BUFFER};
 
-static SEND_NUM: usize = 2048;
+static SEND_NUM: usize = 4096;
 
-static COROUTINE_NUM: usize = 64;
+static COROUTINE_NUM: usize = 512;
 
-static mut NEW_BUFFER: NewBuffer = NewBuffer::new();
-
+// static mut NEW_BUFFER: NewBuffer = NewBuffer::new();
+static mut NEW_BUFFER: Lazy<NewBuffer> = Lazy::new(|| NewBuffer::new());
 pub fn async_helper_thread(arg: usize) {
     let ipc_buffer = (unsafe { IPC_BUFFER.get_ptr() } as *mut sel4::sys::seL4_IPCBuffer);
     let ipcbuf = unsafe {
@@ -73,7 +74,7 @@ pub fn async_helper_thread(arg: usize) {
     }
     let end = get_clock();
     debug_println!("test end");
-
+    debug_println!("client uintr trigger cnt: {}", unsafe { UINT_TRIGGER });
     debug_println!("async client passed: cost: {}", end - start);
     tcb.tcb_suspend().unwrap();
 }
@@ -97,20 +98,31 @@ async fn client_call_test(sender_id: SenderID, msg: u64) {
 
 async fn recv_req_coroutine(arg: usize) {
     debug_println!("hello recv_req_coroutine");
+    static mut REQ_NUM: usize = 0;
     // let cid = coroutine_get_current();
     let async_args= AsyncArgs::from_ptr(arg);
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
     loop {
         if let Some(mut item) = new_buffer.req_items.get_first_item() {
+            // debug_println!("server get item");
+            // let _ = get_clock();
             item.msg_info += 1;
             new_buffer.res_items.write_free_item(&item).unwrap();
             if new_buffer.recv_reply_status.load(SeqCst) == false {
                 new_buffer.recv_reply_status.store(true, SeqCst);
                 unsafe { uipi_send(async_args.server_sender_id.unwrap() as u64); }
             }
+            unsafe {
+                REQ_NUM += 1;
+                if REQ_NUM == SEND_NUM {
+                    break;
+                }
+            }
+
         } else {
             new_buffer.recv_req_status.store(false, SeqCst);
             // coroutine_wake(&cid);
+            // debug_println!("server yield");
             yield_now().await;
         }
     }
@@ -148,7 +160,8 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
 
 
     async_args.req_ntfn = Some(badged_notification.cptr().bits());
-    async_args.ipc_new_buffer = unsafe { Some(&mut NEW_BUFFER) };
+    debug_println!("NEW BUFFER ptr: {:#x}", unsafe { NEW_BUFFER.as_mut_ptr() as usize});
+    async_args.ipc_new_buffer = unsafe { Some(&mut *(NEW_BUFFER.as_mut_ptr())) };
     async_args.child_tcb = Some(obj_allocator.lock().create_thread(async_helper_thread, async_args.get_ptr(), 255, ipc_buffer_cap, ipc_buffer_vaddr)?.cptr().bits());
     while async_args.reply_ntfn.is_none() {}
     let res_send_reply_id = register_sender(LocalCPtr::from_bits(async_args.reply_ntfn.unwrap()));
@@ -164,7 +177,8 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
         coroutine_run_until_blocked();
         r#yield();
     }
-    debug_println!("TEST_PASS");
+    // debug_println!("TEST_PASS");
+    debug_println!("server uintr trigger cnt: {}", unsafe { UINT_TRIGGER });
 
     sel4::BootInfo::init_thread_tcb().tcb_suspend()?;
     unreachable!()
@@ -172,12 +186,12 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
 
 
 fn sync_helper_thread(ep_bits: usize) {
+    debug_println!("hello sync_helper_thread");
     let ipc_buffer = (unsafe { IPC_BUFFER.get_ptr() } as *mut sel4::sys::seL4_IPCBuffer);
     let ipcbuf = unsafe {
         IPCBuffer::from_ptr(ipc_buffer)
     };
     sel4::set_ipc_buffer(ipcbuf);
-    debug_println!("hello sync_helper_thread");
     let ep = LocalCPtr::<Endpoint>::from_bits(ep_bits as u64);
     let msg = MessageInfo::new(1, 0, 0, 1);
     debug_println!("hello sync_helper_thread2");
@@ -186,9 +200,9 @@ fn sync_helper_thread(ep_bits: usize) {
     let base = 100;
     let start = get_clock();
     for i in 0..SEND_NUM {
-        let mut msg_info = MessageInfo::new(0, 0,0, 0);
-        msg_info.inner_mut().0.inner_mut()[0] = (base + i) as u64;
-        let reply = ep.call(msg_info);
+        let mut msg_info = MessageInfo::new(0, 0,0, 1);
+        // msg_info.inner_mut().0.inner_mut()[0] = (base + i) as u64;
+        let _reply = ep.call(msg_info);
         // debug_println!("get reply: {:?}", reply);
     }
     let end = get_clock();
@@ -204,7 +218,7 @@ pub fn sync_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     };
     let ipc_buffer_vaddr = unsafe { IPC_BUFFER.get_ptr() };
     // let ipc_buffer_cap = get_user_image_frame_slot(_bootinfo, unsafe { IPC_BUFFER.get_ptr() }) as u64;
-    let ipc_buffer_cap = UserImageUtils.get_user_image_frame_paddr(unsafe { IPC_BUFFER.get_ptr() }) as u64;
+    let ipc_buffer_cap = UserImageUtils.get_user_image_frame_slot(unsafe { IPC_BUFFER.get_ptr() }) as u64;
     let endpoint = obj_allocator.lock().alloc_ep()?;
     let _ = obj_allocator.lock().create_thread(sync_helper_thread, endpoint.bits() as usize, 255, ipc_buffer_cap, ipc_buffer_vaddr)?;
     // let reply_msg = MessageInfo::new(2, 0, 0, 1);

@@ -24,3 +24,15 @@ async_runtime = { path = "./async_runtime" }
 
 [features]
 board_qemu = []
+
+[dependencies.smoltcp]
+version = "0.10.0"
+default-features = false
+features = [
+    "alloc", "log",  # no std
+    "medium-ethernet",
+    "proto-ipv4",
+    "_proto-fragmentation",
+    "proto-ipv4-fragmentation",
+    "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dns", "socket-dhcpv4"
+]

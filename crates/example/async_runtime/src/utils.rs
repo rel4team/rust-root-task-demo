@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::fmt::{Display, Formatter};
 use sel4::get_clock;
 use core::future::Future;
 use core::pin::Pin;
@@ -45,7 +46,7 @@ pub trait BitMap {
     fn find_first_zero(&self) -> usize;
 
 }
-
+#[derive(Copy, Clone)]
 pub struct BitMap4096 {
     l1: BitMap64,
     l2: [BitMap64; 64],
@@ -65,6 +66,11 @@ impl BitMap4096 {
         }
         self.clear(pos);
         Some(pos)
+    }
+
+    #[inline]
+    pub fn empty(&self) -> bool {
+        self.l1.empty()
     }
 }
 
@@ -124,6 +130,11 @@ impl BitMap64 {
     pub const fn new() -> Self {
         BitMap64 { data: 0 }
     }
+
+    #[inline]
+    pub fn empty(&self) -> bool {
+        self.data == 0
+    }
 }
 
 impl BitMap for BitMap64 {
@@ -156,6 +167,55 @@ impl BitMap for BitMap64 {
         self.data.trailing_ones() as usize
     }
 }
+
+#[derive(Copy, Clone)]
+pub struct RingBuffer<T, const SIZE: usize> {
+    data: [T; SIZE],
+    pub start: usize,
+    pub end: usize,
+}
+
+impl<T, const SIZE: usize> RingBuffer<T, SIZE> where T: Default + Copy + Clone {
+    pub fn new() -> Self {
+        Self {
+            data: [T::default(); SIZE],
+            start: 0,
+            end: 0,
+        }
+    }
+
+    #[inline]
+    pub fn empty(&self) -> bool {
+        self.end == self.start
+    }
+
+    #[inline]
+    pub fn full(&self) -> bool {
+        (self.end + 1) % SIZE == self.start
+    }
+
+    #[inline]
+    pub fn push(&mut self, item: &T) -> Result<(), ()> {
+        if !self.full() {
+            self.data[self.end] = *item;
+            self.end = (self.end + 1) % SIZE;
+            return Ok(());
+        }
+        Err(())
+    }
+
+    #[inline]
+    pub fn pop(&mut self) -> Option<T> {
+        return if !self.empty() {
+            let ans = self.data[self.start];
+            self.start = (self.start + 1) % SIZE;
+            Some(ans)
+        } else {
+            None
+        }
+    }
+}
+
 
 #[inline]
 pub async fn yield_now() -> Option<u64> {
