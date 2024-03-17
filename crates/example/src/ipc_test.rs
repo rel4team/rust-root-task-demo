@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use core::sync::atomic::Ordering::SeqCst;
 use spin::Lazy;
-use async_runtime::{coroutine_is_empty, coroutine_run_until_blocked, coroutine_spawn, Executor, get_executor_ptr, NewBuffer};
+use async_runtime::{coroutine_get_current, coroutine_is_empty, coroutine_run_until_blocked, coroutine_spawn, coroutine_spawn_with_prio, Executor, get_executor_ptr, NewBuffer, runtime_init};
 use async_runtime::utils::yield_now;
 use sel4::{IPCBuffer, LocalCPtr, MessageInfo};
 use sel4::cap_type::{Endpoint, TCB};
@@ -13,7 +13,7 @@ use crate::async_lib::{AsyncArgs, recv_reply_coroutine, register_recv_cid, regis
 use crate::image_utils::UserImageUtils;
 use crate::object_allocator::{GLOBAL_OBJ_ALLOCATOR, IPC_BUFFER};
 
-static SEND_NUM: usize = 4096;
+static SEND_NUM: usize = 20480;
 
 static COROUTINE_NUM: usize = 512;
 
@@ -25,11 +25,11 @@ pub fn async_helper_thread(arg: usize) {
         IPCBuffer::from_ptr(ipc_buffer)
     };
     sel4::set_ipc_buffer(ipcbuf);
-
     let async_args = AsyncArgs::from_ptr(arg);
     while async_args.child_tcb.is_none() || async_args.req_ntfn.is_none() || async_args.ipc_new_buffer.is_none() {}
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
-    let cid = coroutine_spawn(Box::pin(recv_reply_coroutine(arg, SEND_NUM)));
+    debug_println!("[client] exec_ptr: {:#x}", get_executor_ptr());
+    let cid = coroutine_spawn_with_prio(Box::pin(recv_reply_coroutine(arg, SEND_NUM)), 0);
 
     debug_println!("[client] cid: {:?}, exec_ptr: {:#x}", cid, get_executor_ptr());
     let badge = register_recv_cid(&cid).unwrap() as u64;
@@ -99,13 +99,11 @@ async fn client_call_test(sender_id: SenderID, msg: u64) {
 async fn recv_req_coroutine(arg: usize) {
     debug_println!("hello recv_req_coroutine");
     static mut REQ_NUM: usize = 0;
-    // let cid = coroutine_get_current();
     let async_args= AsyncArgs::from_ptr(arg);
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
+
     loop {
         if let Some(mut item) = new_buffer.req_items.get_first_item() {
-            // debug_println!("server get item");
-            // let _ = get_clock();
             item.msg_info += 1;
             new_buffer.res_items.write_free_item(&item).unwrap();
             if new_buffer.recv_reply_status.load(SeqCst) == false {
@@ -121,8 +119,6 @@ async fn recv_req_coroutine(arg: usize) {
 
         } else {
             new_buffer.recv_req_status.store(false, SeqCst);
-            // coroutine_wake(&cid);
-            // debug_println!("server yield");
             yield_now().await;
         }
     }
@@ -138,13 +134,12 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
     // let ipc_buffer_cap = get_user_image_frame_slot(_bootinfo, unsafe { IPC_BUFFER.get_ptr() }) as u64;
     let ipc_buffer_cap = UserImageUtils.get_user_image_frame_slot(unsafe { IPC_BUFFER.get_ptr() }) as u64;
     let mut async_args = AsyncArgs::new();
-
     let unbadged_notification = obj_allocator.lock().alloc_ntfn().unwrap();
     let badged_notification = sel4::BootInfo::init_cspace_local_cptr::<sel4::cap_type::Notification>(
         obj_allocator.lock().get_empty_slot(),
     );
 
-    let cid = coroutine_spawn(Box::pin(recv_req_coroutine(async_args.get_ptr())));
+    let cid = coroutine_spawn_with_prio(Box::pin(recv_req_coroutine(async_args.get_ptr())), 1);
     debug_println!("[server] cid: {:?}, exec_ptr: {:#x}", cid, get_executor_ptr());
     let badge = register_recv_cid(&cid).unwrap() as u64;
     let cnode = sel4::BootInfo::init_thread_cnode();

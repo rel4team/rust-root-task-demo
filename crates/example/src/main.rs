@@ -21,6 +21,10 @@ mod syscall_test;
 
 mod device;
 
+use alloc::alloc::alloc_zeroed;
+use core::alloc::Layout;
+use core::arch::asm;
+use sel4::{IPCBuffer, with_ipc_buffer};
 use sel4_logging::LevelFilter;
 use sel4_root_task::{debug_print, debug_println};
 use sel4_root_task::root_task;
@@ -36,12 +40,40 @@ static LOGGER: Logger = LoggerBuilder::const_default()
     .write(|s| debug_print!("{}", s))
     .build();
 
+fn expand_tls() {
+    const PAGE_SIZE:usize = 4096;
+    const TLS_SIZE: usize = 256;
+    let layout = Layout::from_size_align(TLS_SIZE * PAGE_SIZE, PAGE_SIZE)
+        .expect("Failed to create layout for page aligned memory allocation");
+    let vptr = unsafe {
+        let ptr = alloc_zeroed(layout);
+        if ptr.is_null() {
+            panic!("Failed to allocate page aligned memory");
+        }
+        ptr as usize
+    };
+
+    let ipc_buffer_ptr = with_ipc_buffer(|buffer| {
+        buffer.ptr() as *mut sel4::sys::seL4_IPCBuffer
+    });
+
+    unsafe {
+        asm!("mv tp, {}", in(reg) vptr);
+    }
+
+    let ipcbuf = unsafe {
+        IPCBuffer::from_ptr(ipc_buffer_ptr)
+    };
+    sel4::set_ipc_buffer(ipcbuf);
+}
+
 #[root_task]
 fn main(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     debug_println!("Hello, World!");
     LOGGER.set().unwrap();
 
     heap::init_heap();
+    expand_tls();
     image_utils::UserImageUtils.init(bootinfo);
     GLOBAL_OBJ_ALLOCATOR.lock().init(bootinfo);
     // device::init(bootinfo);

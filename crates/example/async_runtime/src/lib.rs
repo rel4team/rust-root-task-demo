@@ -9,9 +9,10 @@ mod new_buffer;
 pub mod utils;
 
 use alloc::boxed::Box;
+use core::cell::{RefCell, RefMut};
 use core::future::Future;
+use core::mem;
 use core::pin::Pin;
-use lazy_static::lazy_static;
 use spin::Lazy;
 pub use executor::*;
 pub use new_buffer::*;
@@ -21,15 +22,28 @@ pub use coroutine::*;
 static mut EXECUTOR: Lazy<Executor> = Lazy::new(|| Executor::new());
 
 #[inline]
-pub fn get_executor() -> &'static mut  Executor {
+pub fn get_executor() -> &'static mut Executor {
     unsafe {
         &mut *(EXECUTOR.as_mut_ptr())
     }
 }
+
+#[inline]
+pub fn runtime_init() {
+    // get_executor().init();
+}
+
 #[inline]
 pub fn coroutine_spawn(future: Pin<Box<dyn Future<Output=()> + 'static + Send + Sync>>) -> CoroutineId {
     unsafe {
-        get_executor().spawn(future, 0)
+        get_executor().spawn(future, 1)
+    }
+}
+
+#[inline]
+pub fn coroutine_spawn_with_prio(future: Pin<Box<dyn Future<Output=()> + 'static + Send + Sync>>, prio: usize) -> CoroutineId {
+    unsafe {
+        get_executor().spawn(future, prio)
     }
 }
 

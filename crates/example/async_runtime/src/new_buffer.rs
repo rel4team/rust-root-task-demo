@@ -6,12 +6,23 @@ use sel4::r#yield;
 use crate::utils::RingBuffer;
 
 pub const MAX_ITEM_NUM: usize = 4096;
+pub const MAX_IPC_MSG_LEN: usize = 8;
 #[repr(C)]
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct IPCItem {
     pub cid: CoroutineId,
     pub msg_info: u32,
-    pub extend_msg: [u16; 8],
+    pub extend_msg: [u16; MAX_IPC_MSG_LEN],
+}
+
+impl Default for IPCItem {
+    fn default() -> Self {
+        Self {
+            cid: Default::default(),
+            msg_info: 0,
+            extend_msg: [0; MAX_IPC_MSG_LEN],
+        }
+    }
 }
 
 impl IPCItem {
@@ -19,7 +30,7 @@ impl IPCItem {
         Self {
             cid: CoroutineId(0),
             msg_info: 0,
-            extend_msg: [0u16; 8],
+            extend_msg: [0u16; MAX_IPC_MSG_LEN],
         }
     }
 
@@ -27,7 +38,7 @@ impl IPCItem {
         Self {
             cid,
             msg_info: msg,
-            extend_msg: [0u16; 8],
+            extend_msg: [0u16; MAX_IPC_MSG_LEN],
         }
     }
 }

@@ -43,6 +43,10 @@ impl Executor {
         }
     }
 
+    pub fn init(&mut self) {
+        *self = Self::new();
+    }
+
     pub fn spawn(&mut self, future: Pin<Box<dyn Future<Output=()> + 'static + Send + Sync>>, prio: usize) -> CoroutineId {
         let task = Coroutine::new(future, prio);
         let cid = task.cid;
@@ -98,7 +102,6 @@ impl Executor {
         self.prio_bitmap.set(prio);
         // sel4::debug_println!("wake cid: {:?}, start: {:#x}, prio: {}", cid,(&self.ready_queue[prio]) as *const RingBuffer<CoroutineId, MAX_TASK_NUM_PER_PRIO> as usize, prio);
         self.ready_queue[prio].push(&cid).unwrap();
-        // sel4::debug_println!("wake cid: {:?}", cid);
     }
 
     #[inline]
