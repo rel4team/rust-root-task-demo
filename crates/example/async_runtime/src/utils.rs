@@ -219,8 +219,10 @@ impl<T, const SIZE: usize> RingBuffer<T, SIZE> where T: Default + Copy + Clone {
 
 #[inline]
 pub async fn yield_now() -> Option<u64> {
-    let mut helper = Box::new(YieldHelper::new());
+    // let mut helper = Box::new(YieldHelper::new());
+    let helper = YieldHelper::new();
     helper.await;
+    // helper.await;
     coroutine_get_immediate_value(&coroutine_get_current())
 }
 

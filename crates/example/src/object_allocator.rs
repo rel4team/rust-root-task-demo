@@ -1,4 +1,7 @@
+use alloc::alloc::alloc_zeroed;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::alloc::Layout;
 use core::arch::asm;
 use core::ops::Range;
 use spin::Mutex;
@@ -8,6 +11,7 @@ use sel4::ObjectBlueprintArch;
 use sel4::UserContext;
 use sel4_root_task::debug_println;
 use sel4::VMAttributes;
+use crate::image_utils::UserImageUtils;
 
 
 pub static GLOBAL_OBJ_ALLOCATOR: Mutex<ObjectAllocator> = Mutex::new(ObjectAllocator::default());
@@ -17,28 +21,6 @@ pub struct ObjectAllocator {
     untyped_start: InitCSpaceSlot,
     empty: Range<InitCSpaceSlot>,
 }
-
-static NEW_STACK: [u8; 4096 * 1024] = [0u8; 4096 * 1024];
-
-
-#[repr(align(4096))]
-pub struct IPCBuffer {
-    pub data: [u8; 4096]
-}
-
-impl IPCBuffer {
-    pub const fn new() -> Self {
-        Self {
-            data: [0u8; 4096]
-        }
-    }
-
-    pub fn get_ptr(&self) -> usize {
-        self as *const Self as usize
-    }
-}
-
-pub static IPC_BUFFER: IPCBuffer = IPCBuffer::new();
 
 impl ObjectAllocator {
     pub fn new(bootinfo: &sel4::BootInfo) -> Self {
@@ -162,8 +144,18 @@ impl ObjectAllocator {
         ))
     }
 
-    pub fn create_thread(&mut self, func: fn(usize), args: usize, prio: usize, ipc_buffer_cap: CPtrBits, ipc_buffer_addr: usize) -> sel4::Result<LocalCPtr<sel4::cap_type::TCB>>
+    pub fn create_thread(&mut self, func: fn(usize, usize), args: usize, prio: usize, affinity: u64) -> sel4::Result<LocalCPtr<sel4::cap_type::TCB>>
     {
+        let ipc_buffer_layout = Layout::from_size_align(4096, 4096)
+            .expect("Failed to create layout for page aligned memory allocation");
+        let ipc_buffer_addr = unsafe {
+            let ptr = alloc_zeroed(ipc_buffer_layout);
+            if ptr.is_null() {
+                panic!("Failed to allocate page aligned memory");
+            }
+            ptr as usize
+        };
+        let ipc_buffer_cap = UserImageUtils.get_user_image_frame_slot(ipc_buffer_addr) as u64;
         let tcb = self.alloc_tcb()?;
         let ep = self.alloc_ep()?;
         let cnode = sel4::BootInfo::init_thread_cnode();
@@ -173,10 +165,15 @@ impl ObjectAllocator {
         tcb.tcb_set_sched_params(sel4::BootInfo::init_thread_tcb(), prio as u64, prio as u64)?;
         let mut user_context = tcb.tcb_read_registers(false, (core::mem::size_of::<UserContext>() / sel4::WORD_SIZE) as u64)?;
 
+        let new_stack_layout = Layout::from_size_align(4096 * 256, 4096).expect("Failed to create layout for page aligned memory allocation");
         let raw_sp = unsafe {
-            NEW_STACK.as_ptr().add(4096 * 1024) as u64
+            let ptr = alloc_zeroed(new_stack_layout);
+            if ptr.is_null() {
+                panic!("Failed to allocate page aligned memory");
+            }
+            ptr.add(4096 * 256) as u64
         };
-        let mut tp = raw_sp - 8192 * 128;
+        let mut tp = raw_sp - 4096 * 128;
         tp = tp & (!((1 << 12) - 1));
         debug_println!("tp: {:#x}", tp);
 
@@ -196,10 +193,11 @@ impl ObjectAllocator {
         }
         user_context.inner_mut().gp = gp;
         user_context.inner_mut().a0 = args as u64;
+        user_context.inner_mut().a1 = ipc_buffer_addr as u64;
         debug_println!("write register: {:?}", user_context);
         tcb.tcb_write_all_registers(false, &mut user_context)?;
 
-        // tcb.tcb_set_affinity(1)?;
+        tcb.tcb_set_affinity(affinity)?;
         tcb.tcb_resume()?;
         Ok(tcb)
     }

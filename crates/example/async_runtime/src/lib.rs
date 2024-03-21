@@ -1,6 +1,7 @@
 #![no_std]
 #![feature(thread_local)]
 #![feature(generic_const_exprs)]
+#![feature(core_intrinsics)]
 extern crate alloc;
 
 mod executor;
@@ -8,10 +9,13 @@ mod coroutine;
 mod new_buffer;
 pub mod utils;
 
+use alloc::alloc::alloc_zeroed;
 use alloc::boxed::Box;
+use core::alloc::Layout;
 use core::cell::{RefCell, RefMut};
 use core::future::Future;
 use core::mem;
+use core::mem::{forget, size_of};
 use core::pin::Pin;
 use spin::Lazy;
 pub use executor::*;
@@ -19,18 +23,28 @@ pub use new_buffer::*;
 pub use coroutine::*;
 
 #[thread_local]
-static mut EXECUTOR: Lazy<Executor> = Lazy::new(|| Executor::new());
+static mut EXECUTOR: usize = 0;
 
 #[inline]
 pub fn get_executor() -> &'static mut Executor {
     unsafe {
-        &mut *(EXECUTOR.as_mut_ptr())
+        &mut *(EXECUTOR as *mut Executor)
     }
 }
 
 #[inline]
 pub fn runtime_init() {
-    // get_executor().init();
+    let rt_layout = Layout::from_size_align(size_of::<Executor>(), 4096).expect("Failed to create layout for page aligned memory allocation");
+    unsafe {
+        EXECUTOR = {
+            let ptr = alloc_zeroed(rt_layout);
+            if ptr.is_null() {
+                panic!("Failed to allocate page aligned memory");
+            }
+            ptr as usize
+        }
+    }
+    get_executor().init();
 }
 
 #[inline]
@@ -83,7 +97,7 @@ pub fn coroutine_get_current() -> CoroutineId {
 #[inline]
 pub fn get_executor_ptr() -> usize {
     unsafe {
-        EXECUTOR.as_mut_ptr() as usize
+        EXECUTOR
     }
 }
 

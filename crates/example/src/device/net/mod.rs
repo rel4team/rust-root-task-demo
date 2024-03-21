@@ -20,22 +20,14 @@ mod virtio_net;
 
 pub fn init(boot_info: &BootInfo) {
     virtio_net::init(boot_info);
-    let tcp_rx_buffer = SocketBuffer::new(vec![0; 1500]);
-    let tcp_tx_buffer = SocketBuffer::new(vec![0; 1500]);
-    let mut tcp_socket = Socket::new(tcp_rx_buffer, tcp_tx_buffer);
-    tcp_socket.set_ack_delay(None);
-    tcp_socket.set_nagle_enabled(false);
-    tcp_socket.listen(80).unwrap();
-    let tcp_handle = SOCKET_SET.lock().add(tcp_socket);
-    let (net_handler, net_ntfn) = init_interrupt_handler();
-    loop {
-        net_ntfn.wait();
-        net_interrupt_handler(net_handler);
-    }
+    // let (net_handler, net_ntfn) = init_interrupt_handler();
+    // loop {
+    //     net_ntfn.wait();
+    //     net_interrupt_handler(net_handler);
+    // }
 }
 
-pub static SOCKET_SET: Lazy<Arc<Mutex<SocketSet>>> =
-    Lazy::new(|| Arc::new(Mutex::new(SocketSet::new(vec![]))));
+
 
 #[derive(Clone)]
 pub struct NetDevice {
@@ -102,7 +94,7 @@ impl Device for NetDevice {
 }
 
 
-fn init_interrupt_handler() -> (LocalCPtr<IRQHandler>, LocalCPtr<Notification>) {
+pub fn init_net_interrupt_handler() -> (LocalCPtr<IRQHandler>, LocalCPtr<Notification>) {
     let obj_allocator = unsafe {
         &GLOBAL_OBJ_ALLOCATOR
     };
@@ -113,20 +105,4 @@ fn init_interrupt_handler() -> (LocalCPtr<IRQHandler>, LocalCPtr<Notification>) 
     let handler_ntfn = obj_allocator.lock().alloc_ntfn().unwrap();
     irq_handler.irq_handler_set_notification(handler_ntfn).unwrap();
     (irq_handler, handler_ntfn)
-}
-
-fn net_interrupt_handler(_handler: LocalCPtr<IRQHandler>) {
-    debug!("net_interrupt_handler");
-
-    INTERFACE.lock().poll(
-        Instant::ZERO,
-        unsafe { &mut *NET_DEVICE.as_mut_ptr() },
-        &mut SOCKET_SET.lock(),
-    );
-
-    for (handler, socket) in SOCKET_SET.lock().iter() {
-        debug_println!("get socket, socket: {:?}", socket);
-
-
-    }
 }

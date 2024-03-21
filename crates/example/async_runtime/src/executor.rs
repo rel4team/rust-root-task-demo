@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::cell::{RefCell, RefMut};
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{AtomicBool, AtomicU64};
@@ -13,16 +14,16 @@ use crate::utils::{BitMap, BitMap4096, BitMap64, RingBuffer};
 
 const ARRAY_REPEAT_VALUE: Option<Arc<Coroutine>> = None;
 
-const MAX_TASK_NUM_PER_PRIO: usize = 1024;
-
-#[repr(C)]
+const MAX_TASK_NUM: usize = 2048;
+const MAX_PRIO_NUM: usize = 8;
+#[repr(align(4096))]
 pub struct Executor {
-    ready_queue: [RingBuffer<CoroutineId, MAX_TASK_NUM_PER_PRIO>; 64],
+    ready_queue: [RingBuffer<CoroutineId, MAX_TASK_NUM>; MAX_PRIO_NUM],
     prio_bitmap: BitMap64,
     coroutine_num: usize,
     pub current: Option<CoroutineId>,
-    tasks: [Option<Arc<Coroutine>>; 1024],
-    pub immediate_value: [Option<u64>; 1024],
+    tasks: [Option<Arc<Coroutine>>; MAX_TASK_NUM],
+    pub immediate_value: [Option<u64>; MAX_TASK_NUM],
     delay_wake_cids: AtomicU64,
     tasks_bak: Vec<Arc<Coroutine>>,
 }
@@ -34,9 +35,9 @@ impl Executor {
         Self {
             coroutine_num: 0,
             current: None,
-            tasks: [ARRAY_REPEAT_VALUE; 1024],
-            immediate_value: [None; 1024],
-            ready_queue: [RingBuffer::new(); 64],
+            tasks: [ARRAY_REPEAT_VALUE; MAX_TASK_NUM],
+            immediate_value: [None; MAX_TASK_NUM],
+            ready_queue: [RingBuffer::new(); MAX_PRIO_NUM],
             prio_bitmap: BitMap64::new(),
             tasks_bak: Vec::new(),
             delay_wake_cids: AtomicU64::new(0),
@@ -102,6 +103,9 @@ impl Executor {
         self.prio_bitmap.set(prio);
         // sel4::debug_println!("wake cid: {:?}, start: {:#x}, prio: {}", cid,(&self.ready_queue[prio]) as *const RingBuffer<CoroutineId, MAX_TASK_NUM_PER_PRIO> as usize, prio);
         self.ready_queue[prio].push(&cid).unwrap();
+        // for i in 0..MAX_PRIO_NUM {
+        //     sel4::debug_println!("[fetch] prio: {}, start: {}, end: {}", i, self.ready_queue[i].start, self.ready_queue[i].end);
+        // }
     }
 
     #[inline]
