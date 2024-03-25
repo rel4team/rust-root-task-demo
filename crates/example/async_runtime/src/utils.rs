@@ -1,11 +1,5 @@
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use core::fmt::{Display, Formatter};
+
 use sel4::get_clock;
-use core::future::Future;
-use core::pin::Pin;
-use core::task::{Context, Poll};
-use crate::{coroutine_get_current, coroutine_get_immediate_value};
 
 #[derive(Copy, Clone)]
 pub struct IndexAllocator<const SIZE: usize> where
@@ -217,34 +211,3 @@ impl<T, const SIZE: usize> RingBuffer<T, SIZE> where T: Default + Copy + Clone {
 }
 
 
-#[inline]
-pub async fn yield_now() -> Option<u64> {
-    // let mut helper = Box::new(YieldHelper::new());
-    let helper = YieldHelper::new();
-    helper.await;
-    // helper.await;
-    coroutine_get_immediate_value(&coroutine_get_current())
-}
-
-struct YieldHelper(bool);
-
-impl YieldHelper {
-    pub fn new() -> Self {
-        Self {
-            0: false,
-        }
-    }
-}
-
-impl Future for YieldHelper {
-    type Output = ();
-
-    #[inline]
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.0 == false {
-            self.0 = true;
-            return Poll::Pending;
-        }
-        return Poll::Ready(());
-    }
-}

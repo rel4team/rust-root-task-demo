@@ -98,12 +98,10 @@ pub fn register_receiver(tcb: TCB, ntfn: Notification, handler: usize) -> Result
 pub fn register_sender(ntfn: Notification) -> Result<u64, Error> {
     // sel4::debug_println!("register_sender");
     ntfn.register_sender()?;
-    unsafe {
-        Ok(with_ipc_buffer(|buffer| {
-            buffer.inner().uintr_flag
-            // sel4::debug_println!("buffer ptr: {:#x}", buffer as *const IPCBuffer as usize);
-            // a
-        }))
-    }
+    Ok(with_ipc_buffer(|buffer| {
+        buffer.inner().uintr_flag
+        // sel4::debug_println!("buffer ptr: {:#x}", buffer as *const IPCBuffer as usize);
+        // a
+    }))
     // Ok(1)
 }

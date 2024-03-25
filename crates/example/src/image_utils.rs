@@ -25,9 +25,11 @@ impl UserImageUtils {
     }
 
     pub fn get_user_image_frame_paddr(&self, vaddr: usize) -> usize {
-        let frame_cap = self.get_user_image_frame_slot(vaddr);
+        let offset = vaddr % 4096;
+        let new_vaddr = vaddr - offset;
+        let frame_cap = self.get_user_image_frame_slot(new_vaddr);
         let frame = LocalCPtr::<sel4::cap_type::_4KPage>::from_bits(frame_cap as u64);
-        frame.frame_get_address().unwrap()
+        frame.frame_get_address().unwrap() + offset
     }
 
 }

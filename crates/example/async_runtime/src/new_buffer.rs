@@ -7,7 +7,7 @@ use crate::utils::RingBuffer;
 
 pub const MAX_ITEM_NUM: usize = 4096;
 pub const MAX_IPC_MSG_LEN: usize = 8;
-#[repr(C)]
+#[repr(align(8))]
 #[derive(Clone, Copy, Debug)]
 pub struct IPCItem {
     pub cid: CoroutineId,

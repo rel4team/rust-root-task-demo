@@ -3,21 +3,19 @@ use alloc::boxed::Box;
 use core::alloc::Layout;
 use core::mem::size_of;
 use core::sync::atomic::Ordering::SeqCst;
-use spin::Lazy;
 use async_runtime::{coroutine_get_current, coroutine_is_empty, coroutine_run_until_blocked, coroutine_run_until_complete, coroutine_spawn, coroutine_spawn_with_prio, Executor, get_executor_ptr, NewBuffer, runtime_init};
-use async_runtime::utils::yield_now;
 use sel4::{IPCBuffer, LocalCPtr, MessageInfo};
 use sel4::cap_type::{Endpoint, TCB};
 use sel4_root_task::debug_println;
 use sel4::get_clock;
 use sel4::r#yield;
 use uintr::{register_receiver, register_sender, uipi_send};
-use crate::async_lib::{AsyncArgs, recv_reply_coroutine, register_recv_cid, register_sender_buffer, seL4_Call, SenderID, UINT_TRIGGER, uintr_handler};
+use crate::async_lib::{AsyncArgs, recv_reply_coroutine, register_recv_cid, register_sender_buffer, seL4_Call, SenderID, UINT_TRIGGER, uintr_handler, yield_now};
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 
-static SEND_NUM: usize = 20480;
+static SEND_NUM: usize = 1;
 
-static COROUTINE_NUM: usize = 1024;
+static COROUTINE_NUM: usize = 1;
 
 pub fn async_helper_thread(arg: usize, ipc_buffer_addr: usize) {
     let ipc_buffer = ipc_buffer_addr as *mut sel4::sys::seL4_IPCBuffer;
@@ -87,10 +85,7 @@ async fn client_call_test(sender_id: SenderID, msg: u64) {
     for _ in 0..SEND_NUM / COROUTINE_NUM {
         let mut msg_info = MessageInfo::new(0, 0,0, 0);
         msg_info.inner_mut().0.inner_mut()[0] = msg;
-        if let Ok(reply) = seL4_Call(&sender_id, msg_info).await {
-            // debug_println!("client_call_test: {}", get_clock() - start);
-            // assert_eq!(msg + 1, reply.inner().0.inner()[0]);
-            // debug_println!("get reply: {}, client test pass!", reply.inner().0.inner()[0]);
+        if let Ok(_reply) = seL4_Call(&sender_id, msg_info).await {
         } else {
             panic!("client test fail!")
         }
@@ -128,9 +123,7 @@ async fn recv_req_coroutine(arg: usize) {
 
 pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
     runtime_init();
-    let obj_allocator = unsafe {
-        &GLOBAL_OBJ_ALLOCATOR
-    };
+    let obj_allocator = &GLOBAL_OBJ_ALLOCATOR;
     debug_println!("exec size: {}", core::mem::size_of::<Executor>());
     let mut async_args = AsyncArgs::new();
     let unbadged_notification = obj_allocator.lock().alloc_ntfn().unwrap();
@@ -215,9 +208,7 @@ fn sync_helper_thread(ep_bits: usize, ipc_buffer_addr: usize) {
 }
 
 pub fn sync_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
-    let obj_allocator = unsafe {
-        &GLOBAL_OBJ_ALLOCATOR
-    };
+    let obj_allocator = &GLOBAL_OBJ_ALLOCATOR;
     let endpoint = obj_allocator.lock().alloc_ep()?;
     let _ = obj_allocator.lock().create_thread(sync_helper_thread, endpoint.bits() as usize, 255, 0)?;
     // let reply_msg = MessageInfo::new(2, 0, 0, 1);

@@ -1,20 +1,19 @@
 use alloc::alloc::alloc_zeroed;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::arch::asm;
 use core::ops::Range;
 use spin::Mutex;
-use sel4::{CNodeCapData, CPtrBits, InitCSpaceSlot, LocalCPtr, UntypedDesc};
+use sel4::{CNodeCapData, InitCSpaceSlot, LocalCPtr, UntypedDesc};
 use sel4::cap_type::Untyped;
 use sel4::ObjectBlueprintArch;
 use sel4::UserContext;
 use sel4_root_task::debug_println;
-use sel4::VMAttributes;
 use crate::image_utils::UserImageUtils;
 
 
 pub static GLOBAL_OBJ_ALLOCATOR: Mutex<ObjectAllocator> = Mutex::new(ObjectAllocator::default());
+
 
 pub struct ObjectAllocator {
     untyped_list: Vec<UntypedDesc>,
@@ -22,6 +21,7 @@ pub struct ObjectAllocator {
     empty: Range<InitCSpaceSlot>,
 }
 
+#[warn(dead_code)]
 impl ObjectAllocator {
     pub fn new(bootinfo: &sel4::BootInfo) -> Self {
         Self {
@@ -179,9 +179,7 @@ impl ObjectAllocator {
 
         user_context.inner_mut().tp = tp;
         *(user_context.pc_mut()) = unsafe { core::mem::transmute(func) };
-        *(user_context.sp_mut()) = unsafe {
-            tp & !(16 - 1)
-        };
+        *(user_context.sp_mut()) = tp & !(16 - 1);
 
         user_context.inner_mut().s0 = 0;
         user_context.inner_mut().s1 = 0;

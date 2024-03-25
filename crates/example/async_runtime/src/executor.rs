@@ -1,21 +1,19 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::cell::{RefCell, RefMut};
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{AtomicBool, AtomicU64};
+use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering::Relaxed;
 use core::task::Poll;
 use crate::coroutine::{Coroutine, CoroutineId};
-use sel4::get_clock;
-use crate::utils::{BitMap, BitMap4096, BitMap64, RingBuffer};
+use crate::utils::{BitMap, BitMap64, RingBuffer};
 
 
 const ARRAY_REPEAT_VALUE: Option<Arc<Coroutine>> = None;
 
-const MAX_TASK_NUM: usize = 2048;
-const MAX_PRIO_NUM: usize = 8;
+pub const MAX_TASK_NUM: usize = 2048;
+pub const MAX_PRIO_NUM: usize = 8;
 #[repr(align(4096))]
 pub struct Executor {
     ready_queue: [RingBuffer<CoroutineId, MAX_TASK_NUM>; MAX_PRIO_NUM],
@@ -23,7 +21,6 @@ pub struct Executor {
     coroutine_num: usize,
     pub current: Option<CoroutineId>,
     tasks: [Option<Arc<Coroutine>>; MAX_TASK_NUM],
-    pub immediate_value: [Option<u64>; MAX_TASK_NUM],
     delay_wake_cids: AtomicU64,
     tasks_bak: Vec<Arc<Coroutine>>,
 }
@@ -36,7 +33,6 @@ impl Executor {
             coroutine_num: 0,
             current: None,
             tasks: [ARRAY_REPEAT_VALUE; MAX_TASK_NUM],
-            immediate_value: [None; MAX_TASK_NUM],
             ready_queue: [RingBuffer::new(); MAX_PRIO_NUM],
             prio_bitmap: BitMap64::new(),
             tasks_bak: Vec::new(),
@@ -64,10 +60,15 @@ impl Executor {
         self.coroutine_num == 0
     }
 
+    #[inline]
+    pub fn switch_possible(&mut self) -> bool {
+        self.actual_wake();
+        let task = self.tasks[self.current.unwrap().0 as usize].clone().unwrap();
+        let prio = self.prio_bitmap.find_first_one();
+        prio < task.prio
+    }
 
-    pub fn fetch(&mut self) -> Option<Arc<Coroutine>> {
-        // sel4::debug_println!("fetch, start: {:#x}, start: {}, end: {}", (&self.ready_queue[0]) as *const RingBuffer<CoroutineId, MAX_TASK_NUM_PER_PRIO> as usize,
-        // self.ready_queue[0].start, self.ready_queue[0].end);
+    fn actual_wake(&mut self) {
         let mut delay_wake_cids = self.delay_wake_cids.swap(0, Relaxed);
         let mut index = 0;
         while delay_wake_cids != 0 {
@@ -76,8 +77,14 @@ impl Executor {
                 delay_wake_cids &= !(1 << index);
             }
             index += 1;
-            delay_wake_cids >> 1;
+            delay_wake_cids >>= 1;
         }
+    }
+
+    pub fn fetch(&mut self) -> Option<Arc<Coroutine>> {
+        // sel4::debug_println!("fetch, start: {:#x}, start: {}, end: {}", (&self.ready_queue[0]) as *const RingBuffer<CoroutineId, MAX_TASK_NUM_PER_PRIO> as usize,
+        // self.ready_queue[0].start, self.ready_queue[0].end);
+        self.actual_wake();
 
         let prio = self.prio_bitmap.find_first_one();
         if prio == 64 {

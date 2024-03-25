@@ -26,6 +26,9 @@
       <sourceFolder url="file://$MODULE_DIR$/rust-sel4/crates/sel4/sys/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/example/async_runtime/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/example/uintr/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/example/smoltcp/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/example/smoltcp/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/example/smoltcp/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
