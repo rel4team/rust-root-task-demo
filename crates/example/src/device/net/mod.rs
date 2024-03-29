@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
+use sel4_root_task::debug_println;
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use smoltcp::time::Instant;
@@ -41,7 +42,7 @@ pub struct RxTokenWrapper(NetDevice, RxBuffer);
 
 impl RxToken for RxTokenWrapper {
     fn preprocess(&self, sockets: &mut SocketSet<'_>) {
-        // debug!("RxToken preprocess, packet_len: {}", self.1.packet_len());
+        // debug_println!("preprocess");
         snoop_tcp_packet(self.1.packet(), sockets).ok();
     }
     fn consume<R, F>(self, f: F) -> R where F: FnOnce(&mut [u8]) -> R {

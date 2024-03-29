@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
+use sel4_root_task::debug_println;
 
 
 use core::ops::DerefMut;
@@ -10,7 +11,7 @@ use spin::{Lazy, Mutex};
 use async_runtime::{coroutine_wake, CoroutineId};
 use sel4_logging::log::{debug, warn};
 use smoltcp::socket::tcp::{Socket, State};
-use crate::net::SOCKET_SET;
+use crate::net::{ADDR_2_CID, SOCKET_SET};
 
 const LISTEN_QUEUE_SIZE: usize = 4096;
 const PORT_NUM: usize = 65536;
@@ -67,9 +68,6 @@ impl ListenTable {
         Self { tcp }
     }
 
-    pub fn can_listen(&self, port: u16) -> bool {
-        self.tcp[port as usize].lock().is_none()
-    }
 
     pub fn listen(&self, listen_endpoint: IpListenEndpoint, handler: SocketHandle, cid: CoroutineId) -> Result<(), ()> {
         let port = listen_endpoint.port;
@@ -89,13 +87,6 @@ impl ListenTable {
     pub fn unlisten(&self, port: u16) {
         debug!("TCP socket unlisten on {}", port);
         *self.tcp[port as usize].lock() = None;
-    }
-
-    pub fn blocked_cid(&self, port: u16, cid: CoroutineId) {
-        if let Some(entry) = self.tcp[port as usize].lock().deref_mut() {
-            let blocked_cids = &mut entry.block_cids;
-            blocked_cids.push_back(cid);
-        }
     }
 
     pub fn accept(&self, port: u16) -> Result<(SocketHandle, (IpEndpoint, IpEndpoint)), ()> {

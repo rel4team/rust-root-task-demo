@@ -19,7 +19,7 @@ pub async fn listen(port: usize, nw_sender_id: &SenderID) -> Result<SocketHandle
 }
 
 
-pub async fn send(handler: SocketHandle, buffer: &mut TcpBuffer, len: usize) -> Result<usize, ()> {
+pub async fn send(handler: SocketHandle, buffer: &TcpBuffer, len: usize) -> Result<usize, ()> {
     let nw_sender_id = unsafe { NET_STACK_MAP.get(&handler).unwrap() };
     let message = MessageBuilder::send(coroutine_get_current(), handler, buffer, len);
     if let Ok(reply) = seL4_Call_with_item(nw_sender_id, &message).await {

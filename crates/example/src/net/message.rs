@@ -38,7 +38,7 @@ impl MessageBuilder {
     }
 
     #[inline]
-    pub fn send(cid: CoroutineId, handler: SocketHandle, buffer: &mut TcpBuffer, len: usize) -> IPCItem {
+    pub fn send(cid: CoroutineId, handler: SocketHandle, buffer: &TcpBuffer, len: usize) -> IPCItem {
         let mut item = IPCItem::default();
         item.cid = cid;
         item.msg_info = MessageType::Send as u32;
@@ -47,7 +47,7 @@ impl MessageBuilder {
         let ptr = unsafe {
             &mut *(item.extend_msg.as_ptr().add(4) as usize as *mut usize)
         };
-        *ptr = buffer as *mut TcpBuffer as usize;
+        *ptr = buffer as *const TcpBuffer as usize;
         item
     }
 

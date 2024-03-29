@@ -7,7 +7,7 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec;
-
+use smoltcp::wire::IpEndpoint;
 use core::sync::atomic::Ordering::SeqCst;
 use smoltcp::iface::{SocketHandle, SocketSet};
 use smoltcp::socket::tcp::{Socket, SocketBuffer};
@@ -22,6 +22,7 @@ use uintr::{register_receiver, uipi_send};
 use crate::async_lib::{register_recv_cid, uintr_handler, wake_with_value, yield_now, AsyncArgs, SenderID, possible_switch};
 use crate::device::{init_net_interrupt_handler, INTERFACE, NET_DEVICE};
 
+use sel4::get_clock;
 pub use tcp::*;
 pub use message::*;
 pub use listen_table::snoop_tcp_packet;
@@ -42,6 +43,9 @@ pub static SOCKET_SET: Lazy<Arc<Mutex<SocketSet>>> =
 pub static SOCKET_2_CID: Lazy<Arc<Mutex<BTreeMap<SocketHandle, CoroutineId>>>> =
     Lazy::new(|| Arc::new(Mutex::new(BTreeMap::new())));
 
+pub static ADDR_2_CID: Lazy<Arc<Mutex<BTreeMap<IpEndpoint, CoroutineId>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(BTreeMap::new())));
+
 pub fn init() -> LocalCPtr<Notification> {
     runtime_init();
     let (_net_handler, net_ntfn) = init_net_interrupt_handler();
@@ -57,23 +61,32 @@ pub fn init() -> LocalCPtr<Notification> {
 }
 
 fn iface_poll() {
+    // let start = get_clock();
     INTERFACE.lock().poll(
         Instant::ZERO,
         unsafe { &mut *NET_DEVICE.as_mut_ptr() },
         &mut SOCKET_SET.lock(),
     );
+    unsafe {
+        NET_POLL_CNT += 1;
+        // NET_POLL_COST += get_clock() - start;
+        // debug_println!("{}", NET_POLL_COST);
+    }
+    
 }
 
 static mut NET_POLL_CNT: usize = 0;
-
+static mut NET_POLL_COST: u64 = 0;
 async fn net_poll() {
     // debug_println!("net poll cid: {:?}", coroutine_get_current());
     loop {
+        // let start = get_clock();
         iface_poll();
-        unsafe {
-            NET_POLL_CNT += 1;
-            // debug_println!("net poll: {}", NET_POLL_CNT);
-        }
+        // debug_println!("iface_poll cost: {}", get_clock() - start);
+        // unsafe {
+        //     NET_POLL_CNT += 1;
+        //     debug_println!("net poll: {}", NET_POLL_CNT);
+        // }
 
         // for (handler, socket) in SOCKET_SET.lock().iter() {
         //     debug_println!("get socket, handle: {}, socket: {:?}", handler, socket);
@@ -124,6 +137,9 @@ async fn process_req(item: &IPCItem, arg: usize) -> Option<IPCItem> {
             let handler = MessageDecoder::get_socket_handler(&item);
             let tcp_buffer = MessageDecoder::get_buffer(&item);
             let len = MessageDecoder::get_len(&item);
+            // let start = get_clock();
+            // iface_poll();
+            // debug_println!("empty poll cost: {}", get_clock() - start);
             let mut bindings = SOCKET_SET.lock();
             let socket: &mut Socket = bindings.get_mut(handler);
             if socket.can_send() {
@@ -221,14 +237,16 @@ async fn tcp_accept_coroutine(cid: CoroutineId, port: u16, async_args: &mut Asyn
         yield_now().await;
     }
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
-    if let Ok((handle, _)) = unsafe { LISTEN_TABLE.accept(port) } {
+    if let Ok((handle, (_local_ep, remote_ep))) = unsafe { LISTEN_TABLE.accept(port) } {
         let reply = MessageBuilder::listen_reply(cid, handle);
         new_buffer.res_items.write_free_item(&reply).unwrap();
         if new_buffer.recv_reply_status.load(SeqCst) == false {
             new_buffer.recv_reply_status.store(true, SeqCst);
             unsafe { uipi_send(async_args.server_sender_id.unwrap() as u64); }
         }
-        SOCKET_2_CID.lock().insert(handler, coroutine_get_current());
+        SOCKET_2_CID.lock().insert(handler, coroutine_get_current());        
+        // ADDR_2_CID.lock().insert(remote_ep, coroutine_get_current());
+        // debug_println!("accept_addr: {:?}", ip_addr);
     } else {
         panic!("wake failed")
     }

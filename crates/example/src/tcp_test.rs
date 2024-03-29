@@ -1,5 +1,6 @@
 use alloc::alloc::alloc_zeroed;
 use alloc::boxed::Box;
+use alloc::string::ToString;
 use alloc::sync::Arc;
 use core::alloc::Layout;
 use core::mem::{forget, size_of};
@@ -7,6 +8,7 @@ use async_runtime::{coroutine_run_until_complete, coroutine_spawn_with_prio, New
 use sel4::{BootInfo, IPCBuffer, LocalCPtr};
 use sel4::cap_type::{Notification, TCB};
 use sel4_root_task::debug_println;
+use sel4::get_clock;
 use uintr::{register_receiver, register_sender};
 use crate::async_lib::{AsyncArgs, recv_reply_coroutine, register_recv_cid, register_sender_buffer, SenderID, uintr_handler};
 use crate::net::{listen, nw_recv_req_coroutine, recv, send, TcpBuffer};
@@ -101,7 +103,7 @@ fn tcp_server_thread(arg: usize, ipc_buffer_addr: usize) {
     async_args.reply_ntfn = Some(badged_reply_notification.bits());
     while !async_args.server_ready {}
 
-    for _ in 0..256 {
+    for _ in 0..64 {
         coroutine_spawn_with_prio(Box::pin(tcp_server(sender_id)), 1);
     }
 
@@ -129,15 +131,17 @@ async fn tcp_server(nw_sender_id: SenderID) {
         } else {
             panic!("recv fail!");
         }
-        let resp = "connect ok!".as_bytes();
+
+        let resp_str = '!'.to_string().repeat(400);
+        let resp = resp_str.as_bytes();
         for i in 0..resp.len() {
             tcp_buffer.data[i] = resp[i];
         }
-
-        if let Ok(_send_size) = send(listen_fd, tcp_buffer.as_mut(), resp.len()).await {
+        // let start = get_clock();
+        if let Ok(_send_size) = send(listen_fd, tcp_buffer.as_ref(), resp.len()).await {
             // debug_println!("send success, send_size: {}", send_size);
         }
+        // debug_println!("send cost: {}", get_clock() - start);
     }
-
     
 }

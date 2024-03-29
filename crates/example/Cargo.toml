@@ -34,7 +34,7 @@ features = [
     "alloc", "log",   # no std
     "medium-ethernet",
     "proto-ipv4",
-    "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dns",
+    "socket-tcp",
     # "fragmentation-buffer-size-65536", "proto-ipv4-fragmentation",
     # "reassembly-buffer-size-65536", "reassembly-buffer-count-32",
     # "assembler-max-segment-count-32",
