@@ -13,7 +13,7 @@ use smoltcp::iface::{SocketHandle, SocketSet};
 use smoltcp::socket::tcp::{Socket, SocketBuffer};
 use smoltcp::time::Instant;
 use spin::{Lazy, Mutex};
-use async_runtime::{coroutine_get_current, coroutine_spawn_with_prio, coroutine_wake, runtime_init, CoroutineId, IPCItem};
+use async_runtime::{coroutine_get_current, coroutine_spawn_with_prio, coroutine_wake, get_ready_num, runtime_init, CoroutineId, IPCItem};
 use sel4::cap_type::Notification;
 use sel4::LocalCPtr;
 
@@ -54,25 +54,55 @@ pub fn init() -> LocalCPtr<Notification> {
     register_receiver(tcb, net_ntfn, uintr_handler as usize).unwrap();
 
     let cid = coroutine_spawn_with_prio(Box::pin(net_poll()), 0);
+    let _ = coroutine_spawn_with_prio(Box::pin(poll_timer(get_clock())), 2);
     // debug_println!("init cid: {:?}", cid);
     let badge = register_recv_cid(&cid).unwrap() as u64;
     assert_eq!(badge, 0);
     return net_ntfn;
 }
 
-fn iface_poll() {
+fn iface_poll(urgent: bool) {
     // let start = get_clock();
-    INTERFACE.lock().poll(
-        Instant::ZERO,
-        unsafe { &mut *NET_DEVICE.as_mut_ptr() },
-        &mut SOCKET_SET.lock(),
-    );
+    static THRESHOLD: usize = 10;
+    static mut POLL_CNT: usize = 0;
     unsafe {
-        NET_POLL_CNT += 1;
-        // NET_POLL_COST += get_clock() - start;
-        // debug_println!("{}", NET_POLL_COST);
+        POLL_CNT += 1;
+        if urgent || POLL_CNT >= THRESHOLD {
+            // let start = get_clock();
+            INTERFACE.lock().poll(
+                Instant::ZERO,
+                &mut *NET_DEVICE.as_mut_ptr(),
+                &mut SOCKET_SET.lock(),
+            );
+            NET_POLL_CNT += 1;
+            // NET_POLL_COST += get_clock() - start;
+            // debug_println!("{} {}", NET_POLL_COST, NET_POLL_CNT);
+            POLL_CNT = 0;
+        }
     }
-    
+    // unsafe {
+    //     NET_POLL_CNT += 1;
+    //     NET_POLL_COST += get_clock() - start;
+    //     debug_println!("{}", NET_POLL_COST);
+    // }
+}
+
+static mut POLL_TIMER_CNT:usize = 0;
+
+async fn poll_timer(mut timeout: u64) {
+    static TIME_INTERVAL: u64 = 10000000;
+    let cid = coroutine_get_current();
+    loop {
+        // debug_println!("prio 2 task num: {}", get_ready_num());
+        let cur = get_clock();
+        if cur > timeout {
+            // debug_println!("timer timeout");
+            iface_poll(false);
+            timeout = cur + TIME_INTERVAL;
+        }
+        coroutine_wake(&cid);
+        yield_now().await;
+    }
 }
 
 static mut NET_POLL_CNT: usize = 0;
@@ -80,12 +110,15 @@ static mut NET_POLL_COST: u64 = 0;
 async fn net_poll() {
     // debug_println!("net poll cid: {:?}", coroutine_get_current());
     loop {
+        // debug_println!("hello net poll");
         // let start = get_clock();
-        iface_poll();
-        // debug_println!("iface_poll cost: {}", get_clock() - start);
+        iface_poll(true);
+        // debug_println!("poll end");
         // unsafe {
+        //     NET_POLL_COST += get_clock() - start;
         //     NET_POLL_CNT += 1;
-        //     debug_println!("net poll: {}", NET_POLL_CNT);
+        //     // debug_println!("net poll: {}", NET_POLL_CNT);
+        //     debug_println!("iface_poll cost: {}", NET_POLL_COST);
         // }
 
         // for (handler, socket) in SOCKET_SET.lock().iter() {
@@ -147,7 +180,7 @@ async fn process_req(item: &IPCItem, arg: usize) -> Option<IPCItem> {
                 if let Ok(send_size) = socket.send_slice(&send_data) {
                     drop(bindings);
                     let reply = MessageBuilder::send_reply(cid, send_size);
-                    iface_poll();
+                    iface_poll(false);
                     return Some(reply);
                 }
             } else {
@@ -169,6 +202,7 @@ async fn process_req(item: &IPCItem, arg: usize) -> Option<IPCItem> {
                     return Some(reply);
                 }
             } else {
+                // debug_println!("wake recv");
                 drop(bindings);
                 // coroutine_spawn_with_prio(Box::pin(tcp_recv_coroutine2(cid, handler, tcp_buffer, async_args)), 1);
                 wake_with_value(SOCKET_2_CID.lock().get(&handler).unwrap(), item);

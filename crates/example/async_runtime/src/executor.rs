@@ -40,6 +40,10 @@ impl Executor {
         }
     }
 
+    pub fn get_ready_num(&self) -> usize {
+        self.ready_queue[2].size()
+    }
+
     pub fn init(&mut self) {
         *self = Self::new();
     }
@@ -74,6 +78,7 @@ impl Executor {
         while delay_wake_cids != 0 {
             if delay_wake_cids & 1 != 0 {
                 self.wake(&CoroutineId::from_val(index));
+                // sel4::debug_println!("delay wake: {}", index);
                 delay_wake_cids &= !(1 << index);
             }
             index += 1;
@@ -85,12 +90,13 @@ impl Executor {
         // sel4::debug_println!("fetch, start: {:#x}, start: {}, end: {}", (&self.ready_queue[0]) as *const RingBuffer<CoroutineId, MAX_TASK_NUM_PER_PRIO> as usize,
         // self.ready_queue[0].start, self.ready_queue[0].end);
         self.actual_wake();
-
         let prio = self.prio_bitmap.find_first_one();
+        
         if prio == 64 {
             return None;
         }
         if let Some(cid) = self.ready_queue[prio].pop() {
+            // sel4::debug_println!("fetch prio: {}", prio);
             // sel4::debug_println!("fetch cid: {:?}", cid);
             let task = self.tasks[cid.0 as usize].clone().unwrap();
             self.current = Some(cid);
@@ -110,6 +116,7 @@ impl Executor {
         self.prio_bitmap.set(prio);
         // sel4::debug_println!("wake cid: {:?}, start: {:#x}, prio: {}", cid,(&self.ready_queue[prio]) as *const RingBuffer<CoroutineId, MAX_TASK_NUM_PER_PRIO> as usize, prio);
         self.ready_queue[prio].push(&cid).unwrap();
+        // sel4::debug_println!("wake cid: {}, prio: {}, max_prio: {}", cid.0, prio, self.prio_bitmap.find_first_one());
         // for i in 0..MAX_PRIO_NUM {
         //     sel4::debug_println!("[fetch] prio: {}, start: {}, end: {}", i, self.ready_queue[i].start, self.ready_queue[i].end);
         // }

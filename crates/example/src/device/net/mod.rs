@@ -29,6 +29,34 @@ pub struct NetDevice {
 
 pub static NET_DEVICE: Lazy<NetDevice> = Lazy::new(|| NetDevice { net_device_addr: unsafe { VIRT_IO_NET_DEVICE } });
 
+impl NetDevice {
+    pub fn transmit(&self, data: &[u8]) {
+        let net = get_net_device();
+        net.lock().send(TxBuffer::from(data)).expect("can't send data");
+    }
+
+    pub fn receive(&self) -> Option<RxBuffer> {
+        let net = get_net_device();
+        match net.lock().receive() {
+            Ok(buf) => {
+                Some(buf)
+            }
+            Err(virtio_drivers::Error::NotReady) => {
+                debug_println!("net read not ready");
+                None
+            }
+            Err(err) => {
+                panic!("net failed to recv: {:?}", err)
+            }
+        }
+    }
+
+    pub fn recycle_rx_buffer(&self, buf: RxBuffer) {
+        let net = get_net_device();
+        net.lock().recycle_rx_buffer(buf);
+    }
+}
+
 
 pub static INTERFACE: Lazy<Arc<Mutex<Interface>>> = Lazy::new(|| Arc::new(Mutex::new(
     Interface::new(

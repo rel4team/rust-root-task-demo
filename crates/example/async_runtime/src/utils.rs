@@ -179,6 +179,11 @@ impl<T, const SIZE: usize> RingBuffer<T, SIZE> where T: Default + Copy + Clone {
     }
 
     #[inline]
+    pub fn size(&self) -> usize {
+        (self.end + SIZE - self.start) % SIZE
+    }
+
+    #[inline]
     pub fn empty(&self) -> bool {
         self.end == self.start
     }

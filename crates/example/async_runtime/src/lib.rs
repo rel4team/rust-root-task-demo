@@ -84,6 +84,11 @@ pub fn get_executor_ptr() -> usize {
 }
 
 #[inline]
+pub fn get_ready_num() -> usize {
+    get_executor().get_ready_num()
+}
+
+#[inline]
 pub fn coroutine_run_until_blocked() {
     get_executor().run_until_blocked()
 }
