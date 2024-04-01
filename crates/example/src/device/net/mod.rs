@@ -2,17 +2,12 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
 use sel4_root_task::debug_println;
-use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
-use smoltcp::time::Instant;
-use smoltcp::wire::EthernetAddress;
 use spin::{Lazy, Mutex};
 use virtio_drivers::device::net::{RxBuffer, TxBuffer};
 use sel4::{BootInfo, LocalCPtr};
 use sel4::cap_type::{IRQHandler, Notification};
 use crate::device::config::NET_CONFIG;
 use crate::device::net::virtio_net::{get_net_device, PLIC_NET_IRQ, VIRT_IO_NET_DEVICE};
-use crate::net::snoop_tcp_packet;
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 
 mod virtio_net;
@@ -42,7 +37,7 @@ impl NetDevice {
                 Some(buf)
             }
             Err(virtio_drivers::Error::NotReady) => {
-                debug_println!("net read not ready");
+                // debug_println!("net read not ready");
                 None
             }
             Err(err) => {
@@ -57,70 +52,6 @@ impl NetDevice {
     }
 }
 
-
-pub static INTERFACE: Lazy<Arc<Mutex<Interface>>> = Lazy::new(|| Arc::new(Mutex::new(
-    Interface::new(
-        Config::new(EthernetAddress(get_net_device().lock().mac_address()).into()),
-        unsafe { &mut *NET_DEVICE.as_mut_ptr() },
-        Instant::ZERO
-    )
-)));
-
-pub struct RxTokenWrapper(NetDevice, RxBuffer);
-
-impl RxToken for RxTokenWrapper {
-    fn preprocess(&self, sockets: &mut SocketSet<'_>) {
-        // debug_println!("preprocess");
-        snoop_tcp_packet(self.1.packet(), sockets).ok();
-    }
-    fn consume<R, F>(self, f: F) -> R where F: FnOnce(&mut [u8]) -> R {
-        let mut buf = self.1;
-        let res = f(&mut (buf.packet_mut()));
-        get_net_device().lock().recycle_rx_buffer(buf).unwrap();
-        res
-    }
-}
-
-impl TxToken for NetDevice {
-    fn consume<R, F>(self, len: usize, f: F) -> R where F: FnOnce(&mut [u8]) -> R {
-        // debug_println!("txtoken consume");
-        let mut tx_frame = Box::pin(vec![0u8; len]);
-        let res = f((*tx_frame).as_mut());
-        get_net_device().lock().send(TxBuffer::from(tx_frame.as_mut_slice())).expect("can't send data");
-        res
-    }
-}
-
-impl Device for NetDevice {
-    type RxToken<'a> = RxTokenWrapper;
-    type TxToken<'a> = Self;
-
-    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        return if get_net_device().lock().can_recv() {
-            let buf = get_net_device().lock().receive().unwrap();
-            // debug!("NetDevice buf: {:?}", buf.as_bytes());
-            Some((RxTokenWrapper(self.clone(), buf), self.clone()))
-        } else {
-            None
-        }
-    }
-
-    fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        return if get_net_device().lock().can_send() {
-            Some(self.clone())
-        } else {
-            None
-        }
-    }
-
-    fn capabilities(&self) -> DeviceCapabilities {
-        let mut caps = DeviceCapabilities::default();
-        caps.medium = Medium::Ethernet;
-        caps.max_transmission_unit = NET_CONFIG.mtu;
-        caps.max_burst_size = Some(1);
-        caps
-    }
-}
 
 
 pub fn init_net_interrupt_handler() -> (LocalCPtr<IRQHandler>, LocalCPtr<Notification>) {

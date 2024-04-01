@@ -7,7 +7,7 @@ use core::mem::{forget, size_of};
 use async_runtime::{coroutine_run_until_complete, coroutine_spawn_with_prio, NewBuffer, runtime_init};
 use sel4::{BootInfo, IPCBuffer, LocalCPtr};
 use sel4::cap_type::{Notification, TCB};
-use sel4_root_task::debug_println;
+use sel4_root_task::{debug_println, debug_print};
 use sel4::get_clock;
 use uintr::{register_receiver, register_sender};
 use crate::async_lib::{AsyncArgs, recv_reply_coroutine, register_recv_cid, register_sender_buffer, SenderID, uintr_handler};
@@ -121,18 +121,19 @@ async fn tcp_server(nw_sender_id: SenderID) {
     // debug_println!("accept success!");
     let mut tcp_buffer = Box::new(TcpBuffer::new());
     while true {
-        if let Ok(recv_size) = recv(listen_fd, tcp_buffer.as_mut()).await {
+        if let Ok((recv_size, recv_buffer)) = recv(listen_fd).await {
             // debug_println!("recv success, recv_size: {}", recv_size);
             
             for i in 0..recv_size {
-                // debug_print!("{}", char::from(tcp_buffer.data[i]));
+                // debug_print!("{}", char::from(recv_buffer.data[i]));
             }
             // debug_println!("");
         } else {
             panic!("recv fail!");
         }
 
-        let resp_str = '!'.to_string().repeat(400);
+        // let resp_str = '!'.to_string().repeat(400);
+        let resp_str = "connect ok!";
         let resp = resp_str.as_bytes();
         for i in 0..resp.len() {
             tcp_buffer.data[i] = resp[i];

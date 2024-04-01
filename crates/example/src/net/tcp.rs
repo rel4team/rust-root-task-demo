@@ -1,10 +1,10 @@
-use smoltcp::iface::SocketHandle;
 use async_runtime::coroutine_get_current;
 use crate::async_lib::{seL4_Call_with_item, SenderID};
 use crate::net::message::{MessageBuilder, MessageDecoder, MessageType};
 use crate::net::NET_STACK_MAP;
 use crate::net::tcp_buffer::TcpBuffer;
 
+type SocketHandle = usize;
 
 pub async fn listen(port: usize, nw_sender_id: &SenderID) -> Result<SocketHandle, ()> {
     let message = MessageBuilder::listen(coroutine_get_current(), port);
@@ -29,12 +29,12 @@ pub async fn send(handler: SocketHandle, buffer: &TcpBuffer, len: usize) -> Resu
     return Err(());
 }
 
-pub async fn recv(handler: SocketHandle, buffer: &mut TcpBuffer) -> Result<usize, ()> {
+pub async fn recv(handler: SocketHandle) -> Result<(usize, &'static TcpBuffer), ()> {
     let nw_sender_id = unsafe { NET_STACK_MAP.get(&handler).unwrap() };
-    let message = MessageBuilder::recv(coroutine_get_current(), handler, buffer);
+    let message = MessageBuilder::recv(coroutine_get_current(), handler);
     if let Ok(reply) = seL4_Call_with_item(nw_sender_id, &message).await {
         assert_eq!(MessageDecoder::get_type(&reply), MessageType::RecvReply);
-        return Ok(MessageDecoder::get_len(&reply));
+        return Ok((MessageDecoder::get_len(&reply), MessageDecoder::get_buffer(&reply)));
     }
     return Err(());
 }

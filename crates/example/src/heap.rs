@@ -1,4 +1,5 @@
 use lazy_static::*;
+use sel4_root_task::debug_println;
 use spin::mutex::Mutex;
 
 use core::{
@@ -37,6 +38,7 @@ static GLOBAL: Global = Global;
 unsafe impl GlobalAlloc for Global {
     #[inline]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // debug_println!("alloc");
         let c = HEAP.lock().alloc(layout).ok()
         .map_or(0 as *mut u8, |allocation| allocation.as_ptr());
         c
@@ -44,6 +46,7 @@ unsafe impl GlobalAlloc for Global {
 
     #[inline]
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // debug_println!("dealloc");
         HEAP.lock().dealloc(NonNull::new_unchecked(ptr), layout);
     }
 }

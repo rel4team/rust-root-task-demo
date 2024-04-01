@@ -1,4 +1,4 @@
-use smoltcp::iface::SocketHandle;
+
 use async_runtime::{CoroutineId, IPCItem};
 use crate::net::tcp_buffer::TcpBuffer;
 
@@ -29,20 +29,20 @@ impl MessageBuilder {
     }
 
     #[inline]
-    pub fn listen_reply(cid: CoroutineId, handler: SocketHandle) -> IPCItem {
+    pub fn listen_reply(cid: CoroutineId, handler: usize) -> IPCItem {
         let mut item = IPCItem::default();
         item.cid = cid;
         item.msg_info = MessageType::ListenReply as u32;
-        item.extend_msg[0] = unsafe { core::mem::transmute::<SocketHandle, usize>(handler) as u16 };
+        item.extend_msg[0] = unsafe { core::mem::transmute::<usize, usize>(handler) as u16 };
         item
     }
 
     #[inline]
-    pub fn send(cid: CoroutineId, handler: SocketHandle, buffer: &TcpBuffer, len: usize) -> IPCItem {
+    pub fn send(cid: CoroutineId, handler: usize, buffer: &TcpBuffer, len: usize) -> IPCItem {
         let mut item = IPCItem::default();
         item.cid = cid;
         item.msg_info = MessageType::Send as u32;
-        item.extend_msg[0] = unsafe { core::mem::transmute::<SocketHandle, usize>(handler) as u16 };
+        item.extend_msg[0] = unsafe { core::mem::transmute::<usize, usize>(handler) as u16 };
         item.extend_msg[1] = len as u16;
         let ptr = unsafe {
             &mut *(item.extend_msg.as_ptr().add(4) as usize as *mut usize)
@@ -61,24 +61,24 @@ impl MessageBuilder {
     }
 
     #[inline]
-    pub fn recv(cid: CoroutineId, handler: SocketHandle, buffer: &mut TcpBuffer) -> IPCItem {
+    pub fn recv(cid: CoroutineId, handler: usize) -> IPCItem {
         let mut item = IPCItem::default();
         item.cid = cid;
         item.msg_info = MessageType::Recv as u32;
-        item.extend_msg[0] = unsafe { core::mem::transmute::<SocketHandle, usize>(handler) as u16 };
-        let ptr = unsafe {
-            &mut *(item.extend_msg.as_ptr().add(4) as usize as *mut usize)
-        };
-        *ptr = buffer as *mut TcpBuffer as usize;
+        item.extend_msg[0] = unsafe { core::mem::transmute::<usize, usize>(handler) as u16 };
         item
     }
 
     #[inline]
-    pub fn recv_reply(cid: CoroutineId, read_size: usize) -> IPCItem {
+    pub fn recv_reply(cid: CoroutineId, read_size: usize, buffer_ptr: usize) -> IPCItem {
         let mut item = IPCItem::default();
         item.cid = cid;
         item.msg_info = MessageType::RecvReply as u32;
         item.extend_msg[1] = read_size as u16;
+        let ptr = unsafe {
+            &mut *(item.extend_msg.as_ptr().add(4) as usize as *mut usize)
+        };
+        *ptr = buffer_ptr as *mut TcpBuffer as usize;
         item
     }
 }
@@ -103,9 +103,9 @@ impl MessageDecoder {
     }
 
     #[inline]
-    pub fn get_socket_handler(item: &IPCItem) -> SocketHandle {
+    pub fn get_socket_handler(item: &IPCItem) -> usize {
         unsafe {
-            core::mem::transmute::<usize, SocketHandle>(item.extend_msg[0] as usize)
+            core::mem::transmute::<usize, usize>(item.extend_msg[0] as usize)
         }
     }
 
