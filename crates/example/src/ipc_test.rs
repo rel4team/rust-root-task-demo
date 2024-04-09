@@ -157,7 +157,7 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
         &mut *(ptr as *mut NewBuffer)
     };
     async_args.ipc_new_buffer = unsafe { Some(ipc_new_buffer) };
-    async_args.child_tcb = Some(obj_allocator.lock().create_thread(async_helper_thread, async_args.get_ptr(), 255, 1)?.cptr().bits());
+    async_args.child_tcb = Some(obj_allocator.lock().create_thread(async_helper_thread, async_args.get_ptr(), 255, 1, true)?.cptr().bits());
     while async_args.reply_ntfn.is_none() {}
     let res_send_reply_id = register_sender(LocalCPtr::from_bits(async_args.reply_ntfn.unwrap()));
     if res_send_reply_id.is_err() {
@@ -210,7 +210,7 @@ fn sync_helper_thread(ep_bits: usize, ipc_buffer_addr: usize) {
 pub fn sync_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     let obj_allocator = &GLOBAL_OBJ_ALLOCATOR;
     let endpoint = obj_allocator.lock().alloc_ep()?;
-    let _ = obj_allocator.lock().create_thread(sync_helper_thread, endpoint.bits() as usize, 255, 0)?;
+    let _ = obj_allocator.lock().create_thread(sync_helper_thread, endpoint.bits() as usize, 255, 0, true)?;
     // let reply_msg = MessageInfo::new(2, 0, 0, 1);
     let (recv, sender) = endpoint.recv(());
     debug_println!("recv : {:?}, sender: {}",recv, sender);

@@ -58,30 +58,30 @@ impl ItemsQueue {
 
     #[inline]
     pub fn write_free_item(&mut self, item: &IPCItem) -> Result<(), ()> {
-        let _lock = self.lock.lock();
-        return self.buffer.push(item);
-        // loop {
-        //     if let Some(_lock) = self.lock.try_lock() {
-        //         return self.buffer.push(item);
-        //     } else {
-        //         // sel4::debug_println!("w");
-        //         r#yield();
-        //     }
-        // }
+        // let _lock = self.lock.lock();
+        // return self.buffer.push(item);
+        loop {
+            if let Some(_lock) = self.lock.try_lock() {
+                return self.buffer.push(item);
+            } else {
+                // sel4::debug_println!("w");
+                r#yield();
+            }
+        }
     }
 
     #[inline]
     pub fn get_first_item(&mut self) -> Option<IPCItem> {
-        let _lock = self.lock.lock();
-        return self.buffer.pop();
-        // loop {
-        //     if let Some(_lock) = self.lock.try_lock() {
-        //         return self.buffer.pop();
-        //     } else {
-        //         // sel4::debug_println!("g");
-        //         r#yield();
-        //     }
-        // }
+        // let _lock = self.lock.lock();
+        // return self.buffer.pop();
+        loop {
+            if let Some(_lock) = self.lock.try_lock() {
+                return self.buffer.pop();
+            } else {
+                // sel4::debug_println!("g");
+                r#yield();
+            }
+        }
     }
 }
 

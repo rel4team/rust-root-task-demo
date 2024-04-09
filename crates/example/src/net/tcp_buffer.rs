@@ -11,5 +11,8 @@ impl TcpBuffer {
             data: [0u8; TCP_TX_BUF_LEN]
         }
     }
+    pub fn get_ptr(&self) -> usize {
+        self as *const Self as usize
+    }
 }
 

@@ -1,17 +1,17 @@
 use alloc::alloc::alloc_zeroed;
 use alloc::boxed::Box;
-use alloc::string::ToString;
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use core::alloc::Layout;
 use core::mem::{forget, size_of};
-use async_runtime::{coroutine_run_until_complete, coroutine_spawn_with_prio, NewBuffer, runtime_init};
+use async_runtime::{coroutine_is_empty, coroutine_run_until_blocked, coroutine_run_until_complete, coroutine_spawn_with_prio, runtime_init, NewBuffer};
 use sel4::{BootInfo, IPCBuffer, LocalCPtr};
-use sel4::cap_type::{Notification, TCB};
-use sel4_root_task::debug_println;
-use sel4::get_clock;
+use sel4::cap_type::{Endpoint, Notification, TCB};
+use sel4_root_task::{debug_println, debug_print};
+use sel4::{get_clock, r#yield};
 use uintr::{register_receiver, register_sender};
 use crate::async_lib::{AsyncArgs, recv_reply_coroutine, register_recv_cid, register_sender_buffer, SenderID, uintr_handler};
-use crate::net::{listen, nw_recv_req_coroutine, recv, send, TcpBuffer};
+use crate::net::{listen, nw_recv_req_coroutine, recv, send, sync_listen, TcpBuffer};
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 
 pub fn net_stack_test(boot_info: &BootInfo) -> sel4::Result<!> {
@@ -19,7 +19,11 @@ pub fn net_stack_test(boot_info: &BootInfo) -> sel4::Result<!> {
     let ntfn = crate::net::init();
     // BootInfo::init_thread_tcb().tcb_suspend()?;
     create_c_s_ipc_channel(ntfn);
-    coroutine_run_until_complete();
+    // coroutine_run_until_complete();
+    while !coroutine_is_empty() {
+        coroutine_run_until_blocked();
+        r#yield();
+    }
     unreachable!()
 }
 
@@ -54,7 +58,7 @@ fn create_c_s_ipc_channel(ntfn: LocalCPtr<Notification>) {
         badge,
     ).unwrap();
     async_args.req_ntfn = Some(badged_notification.cptr().bits());
-    async_args.child_tcb = Some(GLOBAL_OBJ_ALLOCATOR.lock().create_thread(tcp_server_thread, async_args.get_ptr(), 255, 0).unwrap().cptr().bits());
+    async_args.child_tcb = Some(GLOBAL_OBJ_ALLOCATOR.lock().create_thread(tcp_server_thread, async_args.get_ptr(), 255, 0, true).unwrap().cptr().bits());
     while async_args.reply_ntfn.is_none() {}
     let res_send_reply_id = register_sender(LocalCPtr::from_bits(async_args.reply_ntfn.unwrap()));
     if res_send_reply_id.is_err() {
@@ -103,16 +107,21 @@ fn tcp_server_thread(arg: usize, ipc_buffer_addr: usize) {
     async_args.reply_ntfn = Some(badged_reply_notification.bits());
     while !async_args.server_ready {}
 
-    for _ in 0..64 {
+    for _ in 0..32 {
         coroutine_spawn_with_prio(Box::pin(tcp_server(sender_id)), 1);
     }
 
-    coroutine_run_until_complete();
+    // coroutine_run_until_complete();
+    while !coroutine_is_empty() {
+        coroutine_run_until_blocked();
+        r#yield();
+    }
     debug_println!("server test end");
     loop {
 
     }
 }
+
 
 async fn tcp_server(nw_sender_id: SenderID) {
     debug_println!("tcp server start");
@@ -120,7 +129,7 @@ async fn tcp_server(nw_sender_id: SenderID) {
     // let socket_fd = accept(listen_fd).await.unwrap();
     // debug_println!("accept success!");
     let mut tcp_buffer = Box::new(TcpBuffer::new());
-    while true {
+    loop {
         if let Ok(recv_size) = recv(listen_fd, tcp_buffer.as_mut()).await {
             // debug_println!("recv success, recv_size: {}", recv_size);
             
@@ -132,7 +141,8 @@ async fn tcp_server(nw_sender_id: SenderID) {
             panic!("recv fail!");
         }
 
-        let resp_str = '!'.to_string().repeat(400);
+        // let resp_str = '!'.to_string().repeat(400);
+        let resp_str = String::from("connect ok!");
         let resp = resp_str.as_bytes();
         for i in 0..resp.len() {
             tcp_buffer.data[i] = resp[i];

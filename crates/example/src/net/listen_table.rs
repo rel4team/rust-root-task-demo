@@ -1,5 +1,7 @@
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
+use sel4::cap_type::Endpoint;
+use sel4::{with_ipc_buffer_mut, LocalCPtr, MessageInfo};
 use sel4_root_task::debug_println;
 
 
@@ -13,6 +15,8 @@ use sel4_logging::log::{debug, warn};
 use smoltcp::socket::tcp::{Socket, State};
 use crate::net::{ADDR_2_CID, SOCKET_SET};
 
+use super::MessageType;
+
 const LISTEN_QUEUE_SIZE: usize = 4096;
 const PORT_NUM: usize = 65536;
 
@@ -23,6 +27,7 @@ struct ListenTableEntry {
     listen_endpoint: IpListenEndpoint,
     syn_queue: VecDeque<SocketHandle>,
     block_cids: VecDeque<CoroutineId>,
+    block_ep: VecDeque<LocalCPtr<Endpoint>>,
 }
 
 impl ListenTableEntry {
@@ -31,6 +36,7 @@ impl ListenTableEntry {
             listen_endpoint,
             syn_queue: VecDeque::with_capacity(LISTEN_QUEUE_SIZE),
             block_cids: VecDeque::with_capacity(LISTEN_QUEUE_SIZE),
+            block_ep: VecDeque::with_capacity(LISTEN_QUEUE_SIZE),
         }
     }
 
@@ -84,6 +90,20 @@ impl ListenTable {
         Ok(())
     }
 
+    pub fn listen_with_ep(&self, listen_endpoint: IpListenEndpoint, handle: SocketHandle, ep: LocalCPtr<Endpoint>) {
+        let port = listen_endpoint.port;
+        assert_ne!(port, 0);
+        let mut entry = self.tcp[port as usize].lock();
+        if entry.is_none() {
+            *entry = Some(Box::new(ListenTableEntry::new(listen_endpoint)));
+
+        }
+        let en: &mut Box<ListenTableEntry> = entry.as_mut().unwrap();
+        // debug_println!("listen_with_ep: {:?}", handle);
+        en.syn_queue.push_back(handle);
+        en.block_ep.push_back(ep);
+    }
+
     pub fn unlisten(&self, port: u16) {
         debug!("TCP socket unlisten on {}", port);
         *self.tcp[port as usize].lock() = None;
@@ -124,6 +144,21 @@ impl ListenTable {
             if !entry.block_cids.is_empty() {
                 // debug!("wake cid");
                 coroutine_wake(&entry.block_cids.pop_front().unwrap());
+            }
+
+            if !entry.block_ep.is_empty() {
+                let handler = entry.syn_queue.pop_front().unwrap();
+                let ep = entry.block_ep.pop_front().unwrap();
+                let msg = MessageInfo::new(0, 0, 0, 2);
+                with_ipc_buffer_mut(
+                    |ipc_buf| {
+                        ipc_buf.msg_regs_mut()[0] = MessageType::ListenReply as u64;
+                        ipc_buf.msg_regs_mut()[1] = unsafe {
+                            core::mem::transmute::<SocketHandle, u64>(handler)
+                        };
+                    }
+                );
+                ep.nb_send(msg);
             }
         }
     }

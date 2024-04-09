@@ -2,6 +2,7 @@ mod tcp;
 mod message;
 mod tcp_buffer;
 mod listen_table;
+mod sync_tcp;
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -14,7 +15,7 @@ use smoltcp::socket::tcp::{Socket, SocketBuffer};
 use smoltcp::time::Instant;
 use spin::{Lazy, Mutex};
 use async_runtime::{coroutine_get_current, coroutine_spawn_with_prio, coroutine_wake, get_ready_num, runtime_init, CoroutineId, IPCItem};
-use sel4::cap_type::Notification;
+use sel4::cap_type::{Endpoint, Notification};
 use sel4::LocalCPtr;
 
 use sel4_root_task::debug_println;
@@ -24,17 +25,20 @@ use crate::device::{init_net_interrupt_handler, INTERFACE, NET_DEVICE};
 
 use sel4::get_clock;
 pub use tcp::*;
+pub use sync_tcp::*;
 pub use message::*;
-pub use listen_table::snoop_tcp_packet;
+pub use listen_table::{snoop_tcp_packet, LISTEN_TABLE};
 pub use tcp_buffer::*;
 use smoltcp::wire::IpListenEndpoint;
-use crate::net::listen_table::LISTEN_TABLE;
 
-const TCP_TX_BUF_LEN: usize = 4096;
-const TCP_RX_BUF_LEN: usize = 4096;
+pub const TCP_TX_BUF_LEN: usize = 4096;
+pub const TCP_RX_BUF_LEN: usize = 4096;
 
 #[thread_local]
 static mut NET_STACK_MAP: BTreeMap<SocketHandle, SenderID> = BTreeMap::new();
+
+#[thread_local]
+static mut NET_STACK_MAP2: BTreeMap<SocketHandle, LocalCPtr<Endpoint>> = BTreeMap::new();
 
 pub static SOCKET_SET: Lazy<Arc<Mutex<SocketSet>>> =
     Lazy::new(|| Arc::new(Mutex::new(SocketSet::new(vec![]))));
@@ -54,14 +58,14 @@ pub fn init() -> LocalCPtr<Notification> {
     register_receiver(tcb, net_ntfn, uintr_handler as usize).unwrap();
 
     let cid = coroutine_spawn_with_prio(Box::pin(net_poll()), 0);
-    let _ = coroutine_spawn_with_prio(Box::pin(poll_timer(get_clock())), 2);
+    // let _ = coroutine_spawn_with_prio(Box::pin(poll_timer(get_clock())), 2);
     // debug_println!("init cid: {:?}", cid);
     let badge = register_recv_cid(&cid).unwrap() as u64;
     assert_eq!(badge, 0);
     return net_ntfn;
 }
 
-fn iface_poll(urgent: bool) {
+pub fn iface_poll(urgent: bool) {
     // let start = get_clock();
     static THRESHOLD: usize = 10;
     static mut POLL_CNT: usize = 0;
@@ -90,7 +94,7 @@ fn iface_poll(urgent: bool) {
 static mut POLL_TIMER_CNT:usize = 0;
 
 async fn poll_timer(mut timeout: u64) {
-    static TIME_INTERVAL: u64 = 10000000;
+    static TIME_INTERVAL: u64 = 10000;
     let cid = coroutine_get_current();
     loop {
         // debug_println!("prio 2 task num: {}", get_ready_num());
@@ -145,7 +149,7 @@ pub async fn nw_recv_req_coroutine(arg: usize) {
                     unsafe { uipi_send(async_args.server_sender_id.unwrap() as u64); }
                 }
             }
-            if cnt >= 100 {
+            if cnt >= 10 {
                 possible_switch().await;
                 cnt = 0;
             }
@@ -180,7 +184,7 @@ async fn process_req(item: &IPCItem, arg: usize) -> Option<IPCItem> {
                 if let Ok(send_size) = socket.send_slice(&send_data) {
                     drop(bindings);
                     let reply = MessageBuilder::send_reply(cid, send_size);
-                    iface_poll(false);
+                    iface_poll(true);
                     return Some(reply);
                 }
             } else {
@@ -202,7 +206,6 @@ async fn process_req(item: &IPCItem, arg: usize) -> Option<IPCItem> {
                     return Some(reply);
                 }
             } else {
-                // debug_println!("wake recv");
                 drop(bindings);
                 // coroutine_spawn_with_prio(Box::pin(tcp_recv_coroutine2(cid, handler, tcp_buffer, async_args)), 1);
                 wake_with_value(SOCKET_2_CID.lock().get(&handler).unwrap(), item);

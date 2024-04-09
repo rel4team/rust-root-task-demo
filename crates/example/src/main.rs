@@ -21,7 +21,8 @@ mod ipc_test;
 mod syscall_test;
 
 mod device;
-mod tcp_test;
+mod async_tcp_test;
+mod sync_tcp_test;
 mod net;
 
 use alloc::alloc::alloc_zeroed;
@@ -36,7 +37,8 @@ use sel4_logging::{LoggerBuilder, Logger};
 use crate::ipc_test::{async_ipc_test, sync_ipc_test};
 // use crate::syscall_test::async_syscall_test;
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
-use crate::tcp_test::net_stack_test;
+// use crate::sync_tcp_test::net_stack_test;
+use crate::async_tcp_test::net_stack_test;
 
 const LOG_LEVEL: LevelFilter = LevelFilter::Debug;
 
@@ -81,7 +83,7 @@ fn main(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     expand_tls();
 
     let recv_tcb = sel4::BootInfo::init_thread_tcb();
-    recv_tcb.tcb_set_affinity(2);
+    recv_tcb.tcb_set_affinity(1);
 
     image_utils::UserImageUtils.init(bootinfo);
     GLOBAL_OBJ_ALLOCATOR.lock().init(bootinfo);
