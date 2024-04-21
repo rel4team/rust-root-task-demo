@@ -35,7 +35,7 @@ use sel4_root_task::{debug_print, debug_println};
 use sel4_root_task::root_task;
 use sel4_logging::{LoggerBuilder, Logger};
 use crate::ipc_test::{async_ipc_test, sync_ipc_test};
-// use crate::syscall_test::async_syscall_test;
+use crate::syscall_test::async_syscall_test;
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 // use crate::sync_tcp_test::net_stack_test;
 use crate::async_tcp_test::net_stack_test;
@@ -81,15 +81,13 @@ fn main(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
 
     heap::init_heap();
     expand_tls();
-
     let recv_tcb = sel4::BootInfo::init_thread_tcb();
     recv_tcb.tcb_set_affinity(1);
-
     image_utils::UserImageUtils.init(bootinfo);
     GLOBAL_OBJ_ALLOCATOR.lock().init(bootinfo);
 
-    // async_ipc_test(bootinfo)?;
-    net_stack_test(bootinfo)?;
+    async_ipc_test(bootinfo)?;
+    // net_stack_test(bootinfo)?;
     // sync_ipc_test(bootinfo)?;
     // async_syscall_test(bootinfo)?;
     debug_println!("TEST_PASS");

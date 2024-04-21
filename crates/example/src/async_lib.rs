@@ -1,4 +1,5 @@
 use alloc::collections::BTreeMap;
+use sel4_root_task::debug_println;
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::Ordering::SeqCst;
@@ -9,6 +10,7 @@ use sel4::{CPtr, CPtrBits, MessageInfo, Notification};
 use sel4::sys::invocation_label;
 use sel4::ObjectBlueprint;
 use sel4::get_clock;
+use sel4::wake_syscall_handler;
 use uintr::{register_sender, uintr_frame, uipi_send};
 
 pub const MAX_UINT_VEC: usize = 64;
@@ -53,11 +55,11 @@ pub fn register_sender_buffer(ntfn: Notification, new_buffer: &'static mut NewBu
     return Err(());
 }
 
-
-pub fn register_async_syscall_buffer(new_buffer: &'static mut NewBuffer) {
-    // unsafe { SENDER_MAP.insert(-1 as SenderID, new_buffer); }
+// pub fn register_async_syscall_buffer(new_buffer: &'static mut NewBuffer) {
+pub fn register_async_syscall_buffer(new_buffer_ptr: usize) {
+    // unsafe { SENDER_MAP.insert(63 as SenderID, new_buffer); }
     unsafe {
-        SENDER_MAP[63] = new_buffer as *const NewBuffer as usize;
+        SENDER_MAP[63] = new_buffer_ptr;
     }
 }
 
@@ -202,6 +204,35 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
     }
 }
 
+pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num: usize) {
+    // let cid = coroutine_get_current();
+    static mut REPLY_COUNT: usize = 0;
+    let new_buffer = NewBuffer::from_ptr(new_buffer_ptr);
+    debug_println!("recv_reply_coroutine_async_syscall: finish new_buffer gen");
+    loop {
+        if let Some(item) = new_buffer.res_items.get_first_item() {
+            // debug_println!("recv req: {:?}", item);
+            // coroutine_wake_with_value(&item.cid, item.msg_info as u64);
+            // unsafe {
+            //     IMMEDIATE_VALUE[item.cid.0 as usize] = Some(item);
+            //     coroutine_wake(&item.cid);
+            // }
+            debug_println!("recv_reply_coroutine_async_syscall: get item: {:?}", item);
+            unsafe {
+                REPLY_COUNT += 1;
+                if REPLY_COUNT == reply_num {
+                    break;
+                }
+            }
+        } else {
+            new_buffer.recv_reply_status.store(false, SeqCst);
+            // coroutine_wake(&cid);
+            yield_now().await;
+        }
+    }
+}
+
+
 pub fn uintr_handler(_frame: *mut uintr_frame, irqs: usize) -> usize {
     unsafe {
         UINT_TRIGGER += 1;
@@ -235,17 +266,20 @@ pub async fn seL4_Call_with_item(sender_id: &SenderID, item: &IPCItem) -> Result
     // let start = get_clock();
     if let Some(new_buffer) = unsafe { convert_option_mut_ref::<NewBuffer>(SENDER_MAP[*sender_id as usize]) } {
         // todo: bugs need to fix
+        let msg_info = item.msg_info;
         new_buffer.req_items.write_free_item(&item).unwrap();
-        // debug_println!("seL4_Call_with_item: {}", get_clock() - start);
+        debug_println!("seL4_Call_with_item: write item: {:?}", msg_info);
         if new_buffer.recv_req_status.load(SeqCst) == false {
             new_buffer.recv_req_status.store(true, SeqCst);
-            if *sender_id != -1 {
+            if *sender_id != 63 {
                 // debug_println!("send uipi");
                 unsafe {
                     uipi_send(*sender_id as u64);
                 }
             } else {
                 // todo: submit syscall
+                debug_println!("seL4_Call_with_item: Submit Syscall!");
+                wake_syscall_handler();
             }
         }
 
@@ -266,7 +300,7 @@ pub async fn seL4_Untyped_Retype(service: CPtr,
                                  num_objects: usize
 
 ) -> Result<MessageInfo, ()> {
-    let sender_id = -1;
+    let sender_id = 63;
     let mut syscall_item = IPCItem::new();
     let cid = coroutine_get_current();
     syscall_item.cid = cid;
