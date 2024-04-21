@@ -1,7 +1,6 @@
 use core::sync::atomic::AtomicBool;
 use spin::Mutex;
 use crate::coroutine::CoroutineId;
-use sel4::get_clock;
 use sel4::r#yield;
 use crate::utils::RingBuffer;
 
@@ -101,6 +100,17 @@ impl NewBuffer {
             recv_reply_status: AtomicBool::new(false),
             req_items: ItemsQueue::new(),
             res_items: ItemsQueue::new(),
+        }
+    }
+    #[inline]
+    pub fn get_ptr(&self) -> usize {
+        self as *const Self as usize
+    }
+
+    #[inline]
+    pub fn from_ptr(ptr: usize) -> &'static mut Self {
+        unsafe {
+            &mut *(ptr as *mut Self)
         }
     }
 }
