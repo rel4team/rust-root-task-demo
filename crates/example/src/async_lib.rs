@@ -1,4 +1,5 @@
 use alloc::collections::BTreeMap;
+use sel4_root_task::debug_println;
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::Ordering::SeqCst;
@@ -207,6 +208,46 @@ pub fn uintr_handler(_frame: *mut uintr_frame, irqs: usize) -> usize {
         UINT_TRIGGER += 1;
     }
     // sel4::debug_println!("Hello, uintr_handler!: {}", irqs);
+    let mut local = irqs;
+    let mut bit_index = 0;
+    while local != 0 {
+        if local & 1 == 1 {
+            // sel4::debug_println!("Hello, uintr_handler!: {}", irqs);
+            wake_recv_coroutine(bit_index).unwrap();
+        }
+        local >>= 1;
+        bit_index += 1;
+    }
+
+    return 0;
+}
+
+pub fn client_uintr_handler(_frame: *mut uintr_frame, irqs: usize) -> usize {
+    unsafe {
+        UINT_TRIGGER += 1;
+    }
+    // sel4::debug_println!("client_uintr_handler1: {}", irqs);
+    // sel4::debug_println!("client_uintr_handler2: {}", irqs);
+    let mut local = irqs;
+    let mut bit_index = 0;
+    while local != 0 {
+        if local & 1 == 1 {
+            // sel4::debug_println!("Hello, uintr_handler!: {}", irqs);
+            wake_recv_coroutine(bit_index).unwrap();
+        }
+        local >>= 1;
+        bit_index += 1;
+    }
+    // sel4::debug_println!("client_uintr_handler3: {}", irqs);
+
+    return 0;
+}
+
+pub fn server_uintr_handler(_frame: *mut uintr_frame, irqs: usize) -> usize {
+    unsafe {
+        UINT_TRIGGER += 1;
+    }
+    sel4::debug_println!("server_uintr_handler");
     let mut local = irqs;
     let mut bit_index = 0;
     while local != 0 {

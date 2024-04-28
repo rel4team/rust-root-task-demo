@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 use sel4::cap_type::Endpoint;
 use sel4::{with_ipc_buffer_mut, LocalCPtr, MessageInfo};
 use sel4_root_task::debug_println;
@@ -61,6 +62,8 @@ pub struct ListenTable {
     tcp: Box<[Mutex<Option<Box<ListenTableEntry>>>]>,
 }
 
+
+pub static POLL_EPS: Mutex<Vec<LocalCPtr<Endpoint>>> = Mutex::new(Vec::new());
 
 impl ListenTable {
     pub fn new() -> Self {
@@ -159,6 +162,7 @@ impl ListenTable {
                     }
                 );
                 ep.nb_send(msg);
+                POLL_EPS.lock().push(ep.clone());
             }
         }
     }

@@ -52,11 +52,11 @@ pub fn sync_send(handler: SocketHandle, buffer: &TcpBuffer, len: usize) -> Resul
     Ok(len as usize)
 }
 
-pub fn sync_recv(handler: SocketHandle, buffer: &mut TcpBuffer) -> Result<usize, ()> {
+pub fn sync_recv(handler: SocketHandle, buffer: &mut TcpBuffer, len: usize) -> Result<usize, ()> {
     let ep = unsafe {
         NET_STACK_MAP2.get(&handler).unwrap()
     };
-    let msg = MessageInfo::new(0, 0, 0, 3);
+    let msg = MessageInfo::new(0, 0, 0, 4);
     with_ipc_buffer_mut(
         |ipc_buf| {
             ipc_buf.msg_regs_mut()[0] = MessageType::Recv as u64;
@@ -64,6 +64,7 @@ pub fn sync_recv(handler: SocketHandle, buffer: &mut TcpBuffer) -> Result<usize,
                 core::mem::transmute::<SocketHandle, u64>(handler)
             };
             ipc_buf.msg_regs_mut()[2] = buffer.get_ptr() as u64;
+            ipc_buf.msg_regs_mut()[3] = len as u64;
         }
     );
     ep.send(msg);

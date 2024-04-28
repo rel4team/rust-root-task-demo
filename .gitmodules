@@ -1,3 +1,6 @@
 [submodule "rust-sel4"]
 	path = rust-sel4
 	url = https://github.com/rel4team/rust-sel4.git
+[submodule "crates/example/axi-dma"]
+	path = crates/example/axi-dma
+	url = https://github.com/rel4team/axi-dma.git

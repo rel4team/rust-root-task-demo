@@ -29,9 +29,9 @@ pub async fn send(handler: SocketHandle, buffer: &TcpBuffer, len: usize) -> Resu
     return Err(());
 }
 
-pub async fn recv(handler: SocketHandle, buffer: &mut TcpBuffer) -> Result<usize, ()> {
+pub async fn recv(handler: SocketHandle, buffer: &mut TcpBuffer, len: usize) -> Result<usize, ()> {
     let nw_sender_id = unsafe { NET_STACK_MAP.get(&handler).unwrap() };
-    let message = MessageBuilder::recv(coroutine_get_current(), handler, buffer);
+    let message = MessageBuilder::recv(coroutine_get_current(), handler, buffer, len);
     if let Ok(reply) = seL4_Call_with_item(nw_sender_id, &message).await {
         assert_eq!(MessageDecoder::get_type(&reply), MessageType::RecvReply);
         return Ok(MessageDecoder::get_len(&reply));

@@ -61,11 +61,12 @@ impl MessageBuilder {
     }
 
     #[inline]
-    pub fn recv(cid: CoroutineId, handler: SocketHandle, buffer: &mut TcpBuffer) -> IPCItem {
+    pub fn recv(cid: CoroutineId, handler: SocketHandle, buffer: &mut TcpBuffer, len: usize) -> IPCItem {
         let mut item = IPCItem::default();
         item.cid = cid;
         item.msg_info = MessageType::Recv as u32;
         item.extend_msg[0] = unsafe { core::mem::transmute::<SocketHandle, usize>(handler) as u16 };
+        item.extend_msg[1] = len as u16;
         let ptr = unsafe {
             &mut *(item.extend_msg.as_ptr().add(4) as usize as *mut usize)
         };

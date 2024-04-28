@@ -1,17 +1,20 @@
+use core::cmp::min;
+use core::sync::atomic::AtomicUsize;
 use core::{mem::forget, usize};
 
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
+use sel4::cap_type::{IRQHandler, TCB};
 use sel4::{with_ipc_buffer_mut, MessageInfo};
-use sel4::{cap_type::Endpoint, with_ipc_buffer, BootInfo, CPtr, IPCBuffer, LocalCPtr, r#yield};
+use sel4::{cap_type::Endpoint, with_ipc_buffer, BootInfo, CPtr, IPCBuffer, LocalCPtr, r#yield, get_clock};
 use sel4_root_task::{debug_print, debug_println};
 use smoltcp::iface::SocketHandle;
 use smoltcp::socket::tcp::{Socket, SocketBuffer};
 use smoltcp::wire::IpListenEndpoint;
 use spin::Mutex;
-use crate::net::{iface_poll, TcpBuffer, LISTEN_TABLE, SOCKET_SET};
+use crate::net::{iface_poll, TcpBuffer, LISTEN_TABLE, POLL_EPS, SOCKET_SET};
 use crate::{
     net::{
         sync_recv, sync_listen, sync_send, MessageType, TCP_RX_BUF_LEN, TCP_TX_BUF_LEN
@@ -32,12 +35,14 @@ lazy_static::lazy_static! {
 
 struct SyncArgs {
     ep: CPtr,
+    tcb: Option<LocalCPtr<TCB>>,
 }
 
 impl SyncArgs {
     pub fn new(ep: CPtr) -> Self {
         Self {
             ep,
+            tcb: None
         }
     }
 
@@ -52,30 +57,67 @@ impl SyncArgs {
     }
 }
 
+static THREDA_NUM_BITS: usize = 0;
+static THREAD_NUM: usize = 1 << THREDA_NUM_BITS;
+static mut COMPLETE_CNT: u8 = 0u8;
+
+#[inline]
+fn net_interrupt_handler(handler: LocalCPtr<IRQHandler>) {
+    debug_println!("net_interrupt_handler");
+    iface_poll(true);
+    debug_println!("net_interrupt_handler end");
+    crate::device::interrupt_handler();
+    handler.irq_handler_ack();
+}
+
 pub fn net_stack_test(boot_info: &BootInfo) -> sel4::Result<!> {
     crate::device::init(boot_info);
-    let ntfn = crate::net::init();
+    let (ntfn, handler) = crate::net::init();
     // BootInfo::init_thread_tcb().tcb_suspend()?;
-    let eps = create_c_s_ipc_channel(0);
+    let eps = create_c_s_ipc_channel(THREDA_NUM_BITS);
+    let thread_num = 1 << THREDA_NUM_BITS;
     loop {
+        let mut listen_cnt = 0;
         for ep in eps.iter() {
             let (msg, badge) = ep.nb_recv(());
             if badge != 0 {
                 if badge == 1 {
-                    iface_poll(true);
+                    net_interrupt_handler(handler);
+                } else {
+                    listen_cnt += 1;
+                    process_req(ep.clone());
+                }
+            }
+        }
+        if listen_cnt == THREAD_NUM {
+            break;
+        }
+    }
+
+    loop {
+        let (msg, badge) = ntfn.poll();
+        if badge == 1 {
+            net_interrupt_handler(handler);
+        }
+        let eps = POLL_EPS.lock();
+        for ep in eps.iter() {
+            let (msg, badge) = ep.nb_recv(());
+            if badge != 0 {
+                if badge == 1 {
+                    
                 } else {
                     process_req(ep.clone());
                 }
             }
-
             let mut recv_blocked_tasks = RECV_BLOCKED_TASKS.lock();
             for task in recv_blocked_tasks.iter_mut() {
                 process_blocked_task(task);
             }
             recv_blocked_tasks.retain(|task| task.complete == false);
         }
-
     }
+
+    sel4::BootInfo::init_thread_tcb().tcb_suspend()?;
     unreachable!()
 }
 
@@ -130,12 +172,13 @@ fn process_req(ep: LocalCPtr<Endpoint>) {
         }
 
         MessageType::Recv => {
-            let (handler, tcp_buffer) = unsafe {
+            let (handler, tcp_buffer, len) = unsafe {
                 with_ipc_buffer(
                     |ipc_buf| {
                         (
                             core::mem::transmute::<usize, SocketHandle>(ipc_buf.msg_regs()[1] as usize),
-                            &mut *(ipc_buf.msg_regs()[2] as usize as *mut TcpBuffer)
+                            &mut *(ipc_buf.msg_regs()[2] as usize as *mut TcpBuffer),
+                            ipc_buf.msg_regs()[3] as usize
                         )
                     }
                 )
@@ -143,7 +186,8 @@ fn process_req(ep: LocalCPtr<Endpoint>) {
             let mut bindings = SOCKET_SET.lock();
             let socket: &mut Socket = bindings.get_mut(handler);
             if socket.can_recv() {
-                if let Ok(read_size) = socket.recv_slice(&mut tcp_buffer.data) {
+                let min_len = min(tcp_buffer.data.len(), len);
+                if let Ok(read_size) = socket.recv_slice(&mut tcp_buffer.data[..min_len]) {
                     let reply = MessageInfo::new(0, 0, 0, 2);
                     with_ipc_buffer_mut(
                         |ipc_buf| {
@@ -195,7 +239,7 @@ fn process_req(ep: LocalCPtr<Endpoint>) {
                 }
             } else {
                 // 假设所有数据大小都不大于socket buffer
-                panic!("fail to send");
+                // panic!("fail to send");
                 drop(bindings);
             }
 
@@ -231,9 +275,17 @@ fn create_c_s_ipc_channel(thread_num_bits: usize) -> Vec<LocalCPtr<Endpoint>> {
             leaky_ref
         };
         args.push(sync_args.get_ptr());
-        // let thread = GLOBAL_OBJ_ALLOCATOR.lock().create_thread(tcp_server, sync_args.get_ptr(), 255, 0, true);
     }
-    let _ = GLOBAL_OBJ_ALLOCATOR.lock().create_many_threads(thread_num_bits, tcp_server, args, 255, 0, true);
+    
+    let tcbs = GLOBAL_OBJ_ALLOCATOR.lock().create_many_threads(thread_num_bits, tcp_server, args.clone(), 255, 0, false);
+    for i in 0..thread_num {
+        let sync_arg = SyncArgs::from_ptr(args[i]);
+        sync_arg.tcb = Some(tcbs[i].clone());
+    }
+
+    for tcb in tcbs {
+        tcb.tcb_resume().unwrap()
+    }
     eps
 }
 
@@ -245,33 +297,50 @@ fn tcp_server(args: usize, ipc_buffer_addr: usize) {
         IPCBuffer::from_ptr(ipc_buffer)
     };
     sel4::set_ipc_buffer(ipcbuf);
+    let thread = arg.tcb.unwrap();
+    let send = true;
+    let recv = true;
     debug_println!("start listen");
     let listen_fd = sync_listen(80, ep).unwrap();
     let mut tcp_buffer = Box::new(TcpBuffer::new());
     // debug_println!("accept success!, fd: {:?}", listen_fd);
+    let start = get_clock();
     loop {
-        if let Ok(recv_size) = sync_recv(listen_fd, tcp_buffer.as_mut()) {
-            // debug_println!("recv success, recv_size: {}", recv_size);
-            
-            for i in 0..recv_size {
-                // debug_print!("{}", char::from(tcp_buffer.data[i]));
+        if recv {
+            if let Ok(recv_size) = sync_recv(listen_fd, tcp_buffer.as_mut(), 1) {
+                // debug_println!("recv success, recv_size: {}", recv_size);
+                if tcp_buffer.data[0] == '.' as u8 {
+                    break;
+                }
+            } else {
+                panic!("recv fail!");
             }
-            // debug_println!("");
-        } else {
-            panic!("recv fail!");
         }
 
-        // let resp_str = '!'.to_string().repeat(400);
-        let resp_str = String::from("connect ok!");
-        let resp = resp_str.as_bytes();
-        for i in 0..resp.len() {
-            tcp_buffer.data[i] = resp[i];
-        }
-        // let start = get_clock();
-        if let Ok(_send_size) = sync_send(listen_fd, tcp_buffer.as_ref(), resp.len()) {
-            // debug_println!("send success, send_size: {}", _send_size);
+        if send {
+            // let resp_str = String::from("connect ok!");
+            let resp_str = String::from("!");
+            let resp = resp_str.as_bytes();
+            for i in 0..resp.len() {
+                tcp_buffer.data[i] = resp[i];
+            }
+            // let start = get_clock();
+            if let Ok(_send_size) = sync_send(listen_fd, tcp_buffer.as_ref(), resp.len()) {
+                // debug_println!("send success, send_size: {}", _send_size);
+            }
         }
     }
+    let resp_str = String::from(".");
+    let resp = resp_str.as_bytes();
+    for i in 0..resp.len() {
+        tcp_buffer.data[i] = resp[i];
+    }
+    sync_send(listen_fd, tcp_buffer.as_ref(), resp.len());
+    unsafe {
+        COMPLETE_CNT += 1;
+    }
+    debug_println!("client cost: {}", get_clock() - start);
+    thread.tcb_suspend().unwrap();
     // loop {
     //     r#yield();
     // }
