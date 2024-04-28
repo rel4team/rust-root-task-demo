@@ -220,6 +220,7 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
             //     coroutine_wake(&item.cid);
             // }
             debug_println!("recv_reply_coroutine_async_syscall: get item: {:?}", item);
+            wake_with_value(&item.cid, &item);
             unsafe {
                 REPLY_COUNT += 1;
                 if REPLY_COUNT == reply_num {
@@ -346,7 +347,7 @@ pub async fn seL4_Untyped_Retype(service: CPtr,
     Err(())
 }
 
-pub async fn reL4_Putchar(
+pub async fn seL4_Putchar(
     c: u16
 ) -> Result<MessageInfo, ()> {
     let sender_id = 63;
@@ -359,7 +360,7 @@ pub async fn reL4_Putchar(
     Err(())
 }
 
-pub async fn reL4_Putstring(
+pub async fn seL4_Putstring(
     data: &[u16]
 ) -> Result<MessageInfo, ()> {
     let cid = coroutine_get_current();

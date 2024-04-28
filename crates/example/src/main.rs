@@ -19,6 +19,7 @@ mod async_lib;
 mod image_utils;
 mod ipc_test;
 mod syscall_test;
+mod async_syscall;
 
 mod device;
 mod async_tcp_test;
