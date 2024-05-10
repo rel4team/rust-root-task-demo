@@ -47,7 +47,7 @@ impl ObjectAllocator {
         self.empty = bootinfo.empty();
     }
 
-    fn get_the_first_untyped_slot(&mut self, blueprint: &sel4::ObjectBlueprint) -> LocalCPtr<Untyped> {
+    pub fn get_the_first_untyped_slot(&mut self, blueprint: &sel4::ObjectBlueprint) -> LocalCPtr<Untyped> {
         {
             let idx = self
                 .untyped_list
