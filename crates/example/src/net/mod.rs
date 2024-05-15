@@ -59,12 +59,24 @@ pub fn init() -> (LocalCPtr<Notification>, LocalCPtr<IRQHandler>){
     register_receiver(tcb, net_ntfn, uintr_handler as usize).unwrap();
 
     let cid = coroutine_spawn_with_prio(Box::pin(net_poll(net_handler.clone())), 0);
+    unsafe {
+        NET_DEVICE_POLLER_CID = cid;
+    }
     // let _ = coroutine_spawn_with_prio(Box::pin(poll_timer(get_clock())), 2);
     // debug_println!("init cid: {:?}", cid);
-    let badge = register_recv_cid(&cid).unwrap() as u64;
-    assert_eq!(badge, 0);
+    // let badge = register_recv_cid(&cid).unwrap() as u64;
+    // assert_eq!(badge, 0);
     return (net_ntfn, net_handler);
 }
+
+fn wake_net_device_poller() {
+    unsafe {
+        coroutine_wake(&NET_DEVICE_POLLER_CID);
+    }
+}
+
+#[thread_local]
+static mut NET_DEVICE_POLLER_CID: CoroutineId = CoroutineId::from_val(65535);
 
 pub fn iface_poll(urgent: bool) -> bool {
     // let start = get_clock();
@@ -170,6 +182,10 @@ pub async fn nw_recv_req_coroutine(arg: usize) {
 async fn process_req(item: &IPCItem, arg: usize) -> Option<IPCItem> {
     let async_args= AsyncArgs::from_ptr(arg);
     match MessageDecoder::get_type(&item) {
+        MessageType::NetPollReq => {
+            wake_net_device_poller();
+            return None;
+        }
         MessageType::Listen => {
             let port = MessageDecoder::get_port(&item);
             coroutine_spawn_with_prio(Box::pin(tcp_accept_coroutine(item.cid, port as u16, async_args)), 2);

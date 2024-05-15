@@ -23,7 +23,7 @@ impl CoroutineId {
         CoroutineId(cid.unwrap() as u32)
     }
     /// 根据 usize 生成协程 Id
-    pub fn from_val(v: u32) -> Self {
+    pub const fn from_val(v: u32) -> Self {
         Self(v)
     }
     /// 获取协程 Id 的 usize

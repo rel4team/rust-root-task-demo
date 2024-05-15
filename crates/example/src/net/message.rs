@@ -8,6 +8,7 @@ pub struct MessageDecoder;
 #[derive(PartialOrd, PartialEq, Debug)]
 pub enum MessageType {
     Reserve = 0,
+    NetPollReq,
     Listen,
     ListenReply,
     Send,

@@ -5,12 +5,13 @@ use alloc::sync::Arc;
 use core::alloc::Layout;
 use core::mem::{forget, size_of};
 use async_runtime::{coroutine_is_empty, coroutine_run_until_blocked, coroutine_run_until_complete, coroutine_spawn_with_prio, runtime_init, NewBuffer};
-use sel4::{BootInfo, IPCBuffer, LocalCPtr};
+use sel4::{BootInfo, CPtr, IPCBuffer, LocalCPtr};
 use sel4::cap_type::{Endpoint, Notification, TCB};
 use sel4_root_task::{debug_println, debug_print};
 use sel4::{get_clock, r#yield};
 use uintr::{register_receiver, register_sender};
 use crate::async_lib::{recv_reply_coroutine, register_recv_cid, register_sender_buffer, uintr_handler, AsyncArgs, SenderID, UINT_TRIGGER};
+use crate::image_utils::UserImageUtils;
 use crate::net::{listen, nw_recv_req_coroutine, recv, send, sync_listen, TcpBuffer};
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 
@@ -43,6 +44,8 @@ fn create_c_s_ipc_channel(ntfn: LocalCPtr<Notification>) {
     //     forget(new_buffer);
     //     res
     // };
+    let new_buffer_cap = CPtr::from_bits(UserImageUtils.get_user_image_frame_slot(new_buffer_ref.get_ptr()) as u64);
+    ntfn.register_async_syscall(new_buffer_cap).unwrap();
     let async_args = {
         let ref_args = Arc::new(AsyncArgs::new());
         let leaky_ref = unsafe { &mut *(ref_args.as_ref() as *const AsyncArgs as usize as *mut AsyncArgs) };
@@ -57,6 +60,7 @@ fn create_c_s_ipc_channel(ntfn: LocalCPtr<Notification>) {
 
     let cid = coroutine_spawn_with_prio(Box::pin(nw_recv_req_coroutine(async_args.get_ptr())), 1);
     let badge = register_recv_cid(&cid).unwrap() as u64;
+    assert_eq!(badge, 0);
     let cnode = BootInfo::init_thread_cnode();
     cnode.relative(badged_notification).mint(
         &cnode.relative(ntfn),

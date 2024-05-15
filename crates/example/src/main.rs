@@ -40,8 +40,8 @@ use sel4_logging::{LoggerBuilder, Logger};
 use crate::ipc_test::{async_ipc_test, sync_ipc_test};
 use crate::syscall_test::async_syscall_test;
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
-use crate::sync_tcp_test::net_stack_test;
-// use crate::async_tcp_test::net_stack_test;
+// use crate::sync_tcp_test::net_stack_test;
+use crate::async_tcp_test::net_stack_test;
 
 const LOG_LEVEL: LevelFilter = LevelFilter::Debug;
 
@@ -88,9 +88,9 @@ fn main(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     image_utils::UserImageUtils.init(bootinfo);
     GLOBAL_OBJ_ALLOCATOR.lock().init(bootinfo);
     // async_ipc_test(bootinfo)?;
-    // net_stack_test(bootinfo)?;
+    net_stack_test(bootinfo)?;
     // sync_ipc_test(bootinfo)?;
-    async_syscall_test(bootinfo)?;
+    // async_syscall_test(bootinfo)?;
     debug_println!("TEST_PASS");
 
     sel4::BootInfo::init_thread_tcb().tcb_suspend()?;

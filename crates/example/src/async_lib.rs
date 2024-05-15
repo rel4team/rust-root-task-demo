@@ -284,7 +284,7 @@ pub async fn seL4_Call_with_item(sender_id: &SenderID, item: &IPCItem) -> Result
         // todo: bugs need to fix
         let msg_info = item.msg_info;
         new_buffer.req_items.write_free_item(&item).unwrap();
-        debug_println!("seL4_Call_with_item: write item: {:?}", msg_info);
+        // debug_println!("seL4_Call_with_item: write item: {:?}", msg_info);
         if new_buffer.recv_req_status.load(SeqCst) == false {
             new_buffer.recv_req_status.store(true, SeqCst);
             if *sender_id != 63 {
@@ -312,7 +312,7 @@ pub async fn seL4_Send_with_item(sender_id: &SenderID, item: &IPCItem) -> Result
         // todo: bugs need to fix
         let msg_info = item.msg_info;
         new_buffer.req_items.write_free_item(&item).unwrap();
-        debug_println!("seL4_Call_with_item: write item: {:?}", msg_info);
+        // debug_println!("seL4_Call_with_item: write item: {:?}", msg_info);
         if new_buffer.recv_req_status.load(SeqCst) == false {
             new_buffer.recv_req_status.store(true, SeqCst);
             if *sender_id != 63 {
