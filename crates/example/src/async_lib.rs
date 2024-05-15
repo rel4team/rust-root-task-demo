@@ -1,4 +1,5 @@
 use alloc::collections::BTreeMap;
+use sel4_logging::log::debug;
 use sel4_root_task::debug_println;
 use core::future::Future;
 use core::pin::Pin;
@@ -210,7 +211,6 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
     // let cid = coroutine_get_current();
     static mut REPLY_COUNT: usize = 0;
     let new_buffer = NewBuffer::from_ptr(new_buffer_ptr);
-    debug_println!("recv_reply_coroutine_async_syscall: finish new_buffer gen");
     loop {
         if let Some(item) = new_buffer.res_items.get_first_item() {
             // debug_println!("recv req: {:?}", item);
@@ -219,7 +219,7 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
             //     IMMEDIATE_VALUE[item.cid.0 as usize] = Some(item);
             //     coroutine_wake(&item.cid);
             // }
-            debug_println!("recv_reply_coroutine_async_syscall: get item: {:?}", item);
+            // debug_println!("recv_reply_coroutine_async_syscall: get item: {:?}", item);
             let label: AsyncMessageLabel = AsyncMessageLabel::from(item.msg_info);
             match label {
                 AsyncMessageLabel::RISCVPageGetAddress => {
@@ -231,12 +231,12 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
                     debug_println!("recv_reply_coroutine_async_syscall: async RISCVPageGetAddress get paddr: {:#x}", paddr);
                 }
                 _ => {
-
                 }
             }
             wake_with_value(&item.cid, &item);
             unsafe {
                 REPLY_COUNT += 1;
+                // debug_println!("Reply count: {:?}", REPLY_COUNT);
                 if REPLY_COUNT == reply_num {
                     break;
                 }
@@ -245,6 +245,7 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
             new_buffer.recv_reply_status.store(false, SeqCst);
             // coroutine_wake(&cid);
             yield_now().await;
+            // debug_println!("wake");
         }
     }
 }
@@ -294,7 +295,7 @@ pub async fn seL4_Call_with_item(sender_id: &SenderID, item: &IPCItem) -> Result
                 }
             } else {
                 // todo: submit syscall
-                debug_println!("seL4_Call_with_item: Submit Syscall!");
+                // debug_println!("seL4_Call_with_item: Submit Syscall!");
                 wake_syscall_handler();
             }
         }
@@ -322,7 +323,7 @@ pub async fn seL4_Send_with_item(sender_id: &SenderID, item: &IPCItem) -> Result
                 }
             } else {
                 // todo: submit syscall
-                debug_println!("seL4_Call_with_item: Submit Syscall!");
+                // debug_println!("seL4_Call_with_item: Submit Syscall!");
                 wake_syscall_handler();
             }
         }
@@ -379,25 +380,25 @@ pub async fn seL4_Putstring(
 ) -> Result<MessageInfo, ()> {
     let cid = coroutine_get_current();
     let length = data.len();
-    debug_println!("reL4_Putstring: length: {:?}", length);
+    // debug_println!("reL4_Putstring: length: {:?}", length);
     let round = length / 7;
     for i in 0..=round {
-    let sender_id = 63;
-    let mut syscall_item = IPCItem::new();
-    syscall_item.cid = cid;
-    syscall_item.msg_info = AsyncMessageLabel::PutString.into();
-    let num = if i < round {
-    7
-    } else {
-    length - 7 * i
-    };
-    syscall_item.extend_msg[0] = num as u16;
-    debug_println!("reL4_Putstring: num: {:?}", num);
-    let offset = i * 7;
-    for j in 0..num {
-    syscall_item.extend_msg[j + 1] = data[offset + j];
-    }
-    seL4_Send_with_item(&sender_id, &syscall_item).await;        
+        let sender_id = 63;
+        let mut syscall_item = IPCItem::new();
+        syscall_item.cid = cid;
+        syscall_item.msg_info = AsyncMessageLabel::PutString.into();
+        let num = if i < round {
+            7
+        } else {
+            length - 7 * i
+        };
+        syscall_item.extend_msg[0] = num as u16;
+        // debug_println!("reL4_Putstring: num: {:?}", num);
+        let offset = i * 7;
+        for j in 0..num {
+            syscall_item.extend_msg[j + 1] = data[offset + j];
+        }
+        seL4_Call_with_item(&sender_id, &syscall_item).await;              
     }      
     Err(())
 }
