@@ -4,13 +4,16 @@ use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::Ordering::SeqCst;
 use core::task::{Context, Poll};
-use async_runtime::{coroutine_delay_wake, coroutine_get_current, coroutine_possible_switch, coroutine_wake, CoroutineId, IPCItem, MAX_TASK_NUM, NewBuffer};
+use async_runtime::{coroutine_delay_wake, coroutine_get_current, coroutine_possible_switch, coroutine_wake, AsyncMessageLabel, CoroutineId, IPCItem, NewBuffer, MAX_TASK_NUM};
 use async_runtime::utils::{IndexAllocator};
-use sel4::{CPtr, CPtrBits, MessageInfo, Notification};
+use sel4::{CPtr, CPtrBits, CapRights, LocalCPtr, MessageInfo, Notification, TCB};
 use sel4::sys::invocation_label;
 use sel4::ObjectBlueprint;
 use sel4::get_clock;
+use sel4::wake_syscall_handler;
 use uintr::{register_sender, uintr_frame, uipi_send};
+
+use crate::image_utils::UserImageUtils;
 
 pub const MAX_UINT_VEC: usize = 64;
 
@@ -54,11 +57,11 @@ pub fn register_sender_buffer(ntfn: Notification, new_buffer: &'static mut NewBu
     return Err(());
 }
 
-
-pub fn register_async_syscall_buffer(new_buffer: &'static mut NewBuffer) {
-    // unsafe { SENDER_MAP.insert(-1 as SenderID, new_buffer); }
+// pub fn register_async_syscall_buffer(new_buffer: &'static mut NewBuffer) {
+pub fn register_async_syscall_buffer(new_buffer_ptr: usize) {
+    // unsafe { SENDER_MAP.insert(63 as SenderID, new_buffer); }
     unsafe {
-        SENDER_MAP[63] = new_buffer as *const NewBuffer as usize;
+        SENDER_MAP[63] = new_buffer_ptr;
     }
 }
 
@@ -203,6 +206,36 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
     }
 }
 
+pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num: usize) {
+    // let cid = coroutine_get_current();
+    static mut REPLY_COUNT: usize = 0;
+    let new_buffer = NewBuffer::from_ptr(new_buffer_ptr);
+    debug_println!("recv_reply_coroutine_async_syscall: finish new_buffer gen");
+    loop {
+        if let Some(item) = new_buffer.res_items.get_first_item() {
+            // debug_println!("recv req: {:?}", item);
+            // coroutine_wake_with_value(&item.cid, item.msg_info as u64);
+            // unsafe {
+            //     IMMEDIATE_VALUE[item.cid.0 as usize] = Some(item);
+            //     coroutine_wake(&item.cid);
+            // }
+            debug_println!("recv_reply_coroutine_async_syscall: get item: {:?}", item);
+            wake_with_value(&item.cid, &item);
+            unsafe {
+                REPLY_COUNT += 1;
+                if REPLY_COUNT == reply_num {
+                    break;
+                }
+            }
+        } else {
+            new_buffer.recv_reply_status.store(false, SeqCst);
+            // coroutine_wake(&cid);
+            yield_now().await;
+        }
+    }
+}
+
+
 pub fn uintr_handler(_frame: *mut uintr_frame, irqs: usize) -> usize {
     unsafe {
         UINT_TRIGGER += 1;
@@ -235,21 +268,23 @@ fn convert_option_mut_ref<T>(ptr: usize) -> Option<&'static mut T> {
 pub async fn seL4_Call_with_item(sender_id: &SenderID, item: &IPCItem) -> Result<IPCItem, ()> {
     if let Some(new_buffer) = unsafe { convert_option_mut_ref::<NewBuffer>(SENDER_MAP[*sender_id as usize]) } {
         // todo: bugs need to fix
+        let msg_info = item.msg_info;
         new_buffer.req_items.write_free_item(&item).unwrap();
-        // debug_println!("seL4_Call_with_item: {}", get_clock() - start);
+        debug_println!("seL4_Call_with_item: write item: {:?}", msg_info);
         if new_buffer.recv_req_status.load(SeqCst) == false {
             new_buffer.recv_req_status.store(true, SeqCst);
-            if *sender_id != -1 {
+            if *sender_id != 63 {
                 // debug_println!("send uipi");
                 unsafe {
                     uipi_send(*sender_id as u64);
                 }
             } else {
                 // todo: submit syscall
+                debug_println!("seL4_Call_with_item: Submit Syscall!");
+                wake_syscall_handler();
             }
         }
-        // let end = get_clock();
-        // debug_println!("cost: {}", end - start);
+
         if let Some(res) = yield_now().await {
             return Ok(res);
         }
@@ -257,29 +292,188 @@ pub async fn seL4_Call_with_item(sender_id: &SenderID, item: &IPCItem) -> Result
     Err(())
 }
 
-// pub async fn seL4_Untyped_Retype(service: CPtr,
-//                                  r#type: ObjectBlueprint,
-//                                  size_bits: usize,
-//                                  root: CPtr,
-//                                  node_index: usize,
-//                                  node_depth: usize,
-//                                  node_offset: usize,
-//                                  num_objects: usize
+pub async fn seL4_Send_with_item(sender_id: &SenderID, item: &IPCItem) -> Result<IPCItem, ()> {
+    // let start = get_clock();
+    if let Some(new_buffer) = unsafe { convert_option_mut_ref::<NewBuffer>(SENDER_MAP[*sender_id as usize]) } {
+        // todo: bugs need to fix
+        let msg_info = item.msg_info;
+        new_buffer.req_items.write_free_item(&item).unwrap();
+        debug_println!("seL4_Call_with_item: write item: {:?}", msg_info);
+        if new_buffer.recv_req_status.load(SeqCst) == false {
+            new_buffer.recv_req_status.store(true, SeqCst);
+            if *sender_id != 63 {
+                // debug_println!("send uipi");
+                unsafe {
+                    uipi_send(*sender_id as u64);
+                }
+            } else {
+                // todo: submit syscall
+                debug_println!("seL4_Call_with_item: Submit Syscall!");
+                wake_syscall_handler();
+            }
+        }
+        // if let Some(res) = yield_now().await {
+        //     return Ok(res);
+        // }
+    }
+    Err(())
+    // Ok(())
+}
 
-// ) -> Result<MessageInfo, ()> {
-//     let sender_id = -1;
-//     let mut syscall_item = IPCItem::new();
-//     let cid = coroutine_get_current();
-//     syscall_item.cid = cid;
-//     syscall_item.msg_info = invocation_label::UntypedRetype.into();
-//     syscall_item.extend_msg[0] = service.bits() as u16;
-//     syscall_item.extend_msg[1] = r#type.ty().into_sys() as u16;
-//     syscall_item.extend_msg[2] = size_bits as u16;
-//     syscall_item.extend_msg[3] = root.bits() as u16;
-//     syscall_item.extend_msg[4] = node_index as u16;
-//     syscall_item.extend_msg[5] = node_depth as u16;
-//     syscall_item.extend_msg[6] = node_offset as u16;
-//     syscall_item.extend_msg[7] = num_objects as u16;
-//     seL4_Call_with_item(&sender_id, &syscall_item).await;
-//     Err(())
-// }
+pub async fn seL4_Untyped_Retype(service: CPtr,
+    r#type: ObjectBlueprint,
+    size_bits: usize,
+    root: CPtr,
+    node_index: usize,
+    node_depth: usize,
+    node_offset: usize,
+    num_objects: usize
+
+) -> Result<MessageInfo, ()> {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::UntypedRetype.into();
+    syscall_item.extend_msg[0] = service.bits() as u16;
+    syscall_item.extend_msg[1] = r#type.ty().into_sys() as u16;
+    syscall_item.extend_msg[2] = size_bits as u16;
+    syscall_item.extend_msg[3] = root.bits() as u16;
+    syscall_item.extend_msg[4] = node_index as u16;
+    syscall_item.extend_msg[5] = node_depth as u16;
+    syscall_item.extend_msg[6] = node_offset as u16;
+    syscall_item.extend_msg[7] = num_objects as u16;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}
+
+pub async fn seL4_Putchar(
+    c: u16
+) -> Result<MessageInfo, ()> {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::PutChar.into();
+    syscall_item.extend_msg[0] = c;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}
+
+pub async fn seL4_Putstring(
+    data: &[u16]
+) -> Result<MessageInfo, ()> {
+    let cid = coroutine_get_current();
+    let length = data.len();
+    debug_println!("reL4_Putstring: length: {:?}", length);
+    let round = length / 7;
+    for i in 0..=round {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::PutString.into();
+    let num = if i < round {
+    7
+    } else {
+    length - 7 * i
+    };
+    syscall_item.extend_msg[0] = num as u16;
+    debug_println!("reL4_Putstring: num: {:?}", num);
+    let offset = i * 7;
+    for j in 0..num {
+    syscall_item.extend_msg[j + 1] = data[offset + j];
+    }
+    seL4_Send_with_item(&sender_id, &syscall_item).await;        
+    }      
+    Err(())
+}
+
+pub async fn seL4_RISCVPage_Get_Address(
+    vaddr: usize
+) -> Result<MessageInfo, ()> {
+    let offset = vaddr % 4096;
+    let new_vaddr = vaddr - offset;
+    let frame_cap = UserImageUtils.get_user_image_frame_slot(new_vaddr);
+    let frame = LocalCPtr::<sel4::cap_type::_4KPage>::from_bits(frame_cap as u64);
+    // frame.frame_get_address().unwrap() + offset;
+    let bits = frame.cptr().bits();
+    debug_println!("seL4_RISCVPage_Get_Address: bits: {:x}", bits);
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::RISCVPageGetAddress.into();
+    syscall_item.extend_msg[0] = bits as u16;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}
+
+pub async fn seL4_TCB_Bind_Notification(
+    service: TCB,
+    notification: Notification
+) -> Result<MessageInfo, ()> {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::TCBBindNotification.into();
+    syscall_item.extend_msg[0] = service.bits() as u16;
+    syscall_item.extend_msg[1] = notification.bits() as u16;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}
+
+pub async fn seL4_TCB_Unbind_Notification(
+    service: TCB
+) -> Result<MessageInfo, ()> {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::TCBUnbindNotification.into();
+    syscall_item.extend_msg[0] = service.bits() as u16;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}
+
+pub async fn seL4_CNode_Delete(
+    service: CPtr,
+    node_index: usize,
+    node_depth: usize,
+) -> Result<MessageInfo, ()> {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::CNodeDelete.into();
+    syscall_item.extend_msg[0] = service.bits() as u16;
+    syscall_item.extend_msg[1] = node_index as u16;
+    syscall_item.extend_msg[2] = node_depth as u16;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}
+
+pub async fn seL4_CNode_Copy(
+    dest_root_cptr: CPtr,
+    dest_index: usize,
+    dest_depth: usize,
+    src_root_cptr: CPtr,
+    src_index: usize,
+    src_depth: usize,
+    cap_right: CapRights
+) -> Result<MessageInfo, ()> {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::CNodeCopy.into();
+    syscall_item.extend_msg[0] = dest_root_cptr.bits() as u16;
+    syscall_item.extend_msg[1] = dest_index as u16;
+    syscall_item.extend_msg[2] = dest_depth as u16;
+    syscall_item.extend_msg[3] = src_root_cptr.bits() as u16;
+    syscall_item.extend_msg[4] = src_index as u16;
+    syscall_item.extend_msg[5] = src_depth as u16;
+    syscall_item.extend_msg[6] = cap_right.into_inner().0.inner()[0] as u16;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}

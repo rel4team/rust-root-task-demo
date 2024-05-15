@@ -7,6 +7,7 @@ extern crate alloc;
 mod executor;
 mod coroutine;
 mod new_buffer;
+mod message_info;
 pub mod utils;
 
 use alloc::alloc::alloc_zeroed;
@@ -18,6 +19,7 @@ use core::pin::Pin;
 pub use executor::*;
 pub use new_buffer::*;
 pub use coroutine::*;
+pub use message_info::*;
 
 #[thread_local]
 static mut EXECUTOR: usize = 0;

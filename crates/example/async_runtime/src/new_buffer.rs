@@ -8,6 +8,7 @@ use crate::utils::RingBuffer;
 
 pub const MAX_ITEM_NUM: usize = 4096;
 pub const MAX_IPC_MSG_LEN: usize = 16;
+
 #[repr(align(8))]
 #[derive(Clone, Copy, Debug)]
 pub struct IPCItem {
@@ -86,6 +87,17 @@ impl NewBuffer {
             recv_reply_status: AtomicBool::new(false),
             req_items: ItemsQueue::new(),
             res_items: ItemsQueue::new(),
+        }
+    }
+    #[inline]
+    pub fn get_ptr(&self) -> usize {
+        self as *const Self as usize
+    }
+
+    #[inline]
+    pub fn from_ptr(ptr: usize) -> &'static mut Self {
+        unsafe {
+            &mut *(ptr as *mut Self)
         }
     }
 }
