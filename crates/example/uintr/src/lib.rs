@@ -77,8 +77,8 @@ pub unsafe fn __handler_entry(frame: *mut uintr_frame, handler: u64) {
     // sel4::debug_println!("__handler_entry enter");
     let irqs = uipi_read();
     // sel4::debug_println!("__handler_entry enter2");
-    // clear_csr_uip(MIE_USIE);
-    uip::clear_usoft();
+    clear_csr_uip(MIE_USIE);
+    // uip::clear_usoft();
     let handler_func: fn(*mut uintr_frame, usize) -> usize = core::mem::transmute(handler);
     // sel4::debug_println!("__handler_entry enter3");
     let irqs = handler_func(frame, irqs);

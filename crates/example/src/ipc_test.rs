@@ -7,20 +7,21 @@ use core::alloc::Layout;
 use core::mem::{self, size_of};
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering::SeqCst;
-use async_runtime::{coroutine_get_current, coroutine_is_empty, coroutine_run_until_blocked, coroutine_run_until_complete, coroutine_spawn, coroutine_spawn_with_prio, Executor, get_executor_ptr, NewBuffer, runtime_init};
+use async_runtime::{coroutine_get_current, coroutine_is_empty, coroutine_run_until_blocked, coroutine_run_until_complete, coroutine_spawn, coroutine_spawn_with_prio, get_executor_ptr, runtime_init, Executor, IPCItem, NewBuffer};
 use sel4::{IPCBuffer, LocalCPtr, MessageInfo};
 use sel4::cap_type::{Endpoint, TCB};
 use sel4_root_task::debug_println;
 use sel4::get_clock;
 use sel4::r#yield;
 use uintr::{register_receiver, register_sender, uipi_send};
-use crate::async_lib::{client_uintr_handler, recv_reply_coroutine, register_recv_cid, register_sender_buffer, seL4_Call, server_uintr_handler, uintr_handler, yield_now, AsyncArgs, SenderID, UINT_TRIGGER};
+use crate::async_lib::{recv_reply_coroutine, register_recv_cid, register_sender_buffer, seL4_Call, seL4_Call_with_item, uintr_handler, yield_now, AsyncArgs, SenderID, UINT_TRIGGER};
 use crate::matrix::matrix_test;
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 
-static SEND_NUM: usize = 1;
+static SEND_NUM: usize = 20480;
 static mut MUTE_SEND_NUM: usize = SEND_NUM;
 static COROUTINE_NUM: usize = 1;
+const MATRIX_SIZE: usize = 1;
 
 pub fn mutex_print(s: String) {
     static PRINT_LOCK: Mutex<()> = Mutex::new(());
@@ -58,7 +59,7 @@ pub fn async_helper_thread(arg: usize, ipc_buffer_addr: usize) {
     ).unwrap();
 
     tcb.tcb_bind_notification(reply_ntfn).unwrap();
-    register_receiver(tcb, reply_ntfn, client_uintr_handler as usize).unwrap();
+    register_receiver(tcb, reply_ntfn, uintr_handler as usize).unwrap();
 
     let res_sender_id = register_sender_buffer(LocalCPtr::from_bits(async_args.req_ntfn.unwrap()), new_buffer);
     if res_sender_id.is_err() {
@@ -85,25 +86,24 @@ pub fn async_helper_thread(arg: usize, ipc_buffer_addr: usize) {
     }
     // coroutine_run_until_complete();
     let end = get_clock();
-    
-    debug_println!("async client passed: cost: {}", end - start);
-    loop {
-        // let uintr_trigger_info = format!("client uintr trigger cnt: {}, Actual Send uipi: {}",
-        // unsafe { UINT_TRIGGER}, unsafe { SEND_UIPI_CNT });
-        // mutex_print(uintr_trigger_info);
-    }
+    let uintr_trigger_info = format!("client uintr trigger cnt: {}",
+        unsafe { UINT_TRIGGER});
+    mutex_print(uintr_trigger_info);
+    let async_test_res_info = format!("async client passed: cost: {}", end - start);
+
+    mutex_print(async_test_res_info);
+
     tcb.tcb_suspend().unwrap();
 }
 
 
 async fn client_call_test(sender_id: SenderID, msg: u64) {
-    // let start = get_clock();
     unsafe {
         while MUTE_SEND_NUM > 0 {
             MUTE_SEND_NUM -= 1;
-            let mut msg_info = MessageInfo::new(0, 0,0, 0);
-            msg_info.inner_mut().0.inner_mut()[0] = msg;
-            if let Ok(_reply) = seL4_Call(&sender_id, msg_info).await {
+            let item = IPCItem::from(coroutine_get_current(), msg as u32);;
+            if let Ok(_reply) = seL4_Call_with_item(&sender_id, &item).await {
+
             } else {
                 panic!("client test fail!")
             }
@@ -111,25 +111,22 @@ async fn client_call_test(sender_id: SenderID, msg: u64) {
     }
 }
 
-static mut SEND_UIPI_CNT: usize = 0;
 
 async fn recv_req_coroutine(arg: usize) {
     debug_println!("hello recv_req_coroutine");
     static mut REQ_NUM: usize = 0;
     let async_args= AsyncArgs::from_ptr(arg);
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
-
     loop {
         if let Some(mut item) = new_buffer.req_items.get_first_item() {
-            item.msg_info += 1;
+            // item.msg_info += 1;
             // debug_println!("hello get item");
-            // matrix_test::<3>();
+            matrix_test::<MATRIX_SIZE>();
             new_buffer.res_items.write_free_item(&item).unwrap();
             if new_buffer.recv_reply_status.load(SeqCst) == false {
                 new_buffer.recv_reply_status.store(true, SeqCst);
                 unsafe {
                     uipi_send(async_args.server_sender_id.unwrap() as u64);
-                    SEND_UIPI_CNT += 1;
                 }
             }
             unsafe {
@@ -169,7 +166,7 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
 
     let recv_tcb = sel4::BootInfo::init_thread_tcb();
     recv_tcb.tcb_bind_notification(unbadged_notification)?;
-    register_receiver(recv_tcb, unbadged_notification, server_uintr_handler as usize)?;
+    register_receiver(recv_tcb, unbadged_notification, uintr_handler as usize)?;
 
 
     async_args.req_ntfn = Some(badged_notification.cptr().bits());
@@ -198,11 +195,10 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
         coroutine_run_until_blocked();
         r#yield();
     }
-    // debug_println!("TEST_PASS");
-    loop {
-        // let uintr_trigger_info = format!("server cnt: {}", unsafe { UINT_TRIGGER });
-        // mutex_print(uintr_trigger_info);
-    }
+    debug_println!("TEST_PASS");
+    let uintr_trigger_info = format!("server uintr cnt: {}",
+        unsafe { UINT_TRIGGER });
+    mutex_print(uintr_trigger_info);
 
     sel4::BootInfo::init_thread_tcb().tcb_suspend()?;
     unreachable!()
@@ -222,11 +218,11 @@ fn sync_helper_thread(ep_bits: usize, ipc_buffer_addr: usize) {
     let reply = ep.call(msg);
     debug_println!("get reply: {:?}", reply);
     let base = 100;
+    let mut msg_info = MessageInfo::new(0, 0,0, 1);
     let start = get_clock();
     for i in 0..SEND_NUM {
-        let mut msg_info = MessageInfo::new(0, 0,0, 1);
-        msg_info.inner_mut().0.inner_mut()[0] = ((base + i) as u64) % 3;
-        let _reply = ep.call(msg_info);
+        // msg_info.inner_mut().0.inner_mut()[0] = ((base + i) as u64) % 3;
+        let _reply = ep.call(msg_info.clone());
         // debug_println!("get reply: {:?}", reply);
     }
     let end = get_clock();
@@ -246,6 +242,7 @@ pub fn sync_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     let mut recv = MessageInfo::new(0, 0, 0, 0);
     loop {
         let (new_recv, _) = endpoint.reply_recv(recv.clone(), ());
+        matrix_test::<MATRIX_SIZE>();
         recv = new_recv;
     }
     // sel4::BootInfo::init_thread_tcb().tcb_suspend()?;

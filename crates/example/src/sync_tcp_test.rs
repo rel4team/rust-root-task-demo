@@ -14,6 +14,7 @@ use smoltcp::iface::SocketHandle;
 use smoltcp::socket::tcp::{Socket, SocketBuffer};
 use smoltcp::wire::IpListenEndpoint;
 use spin::Mutex;
+use crate::device::{recv_test, transmit_test};
 use crate::net::{iface_poll, TcpBuffer, LISTEN_TABLE, POLL_EPS, SOCKET_SET};
 use crate::{
     net::{
@@ -57,21 +58,21 @@ impl SyncArgs {
     }
 }
 
-static THREDA_NUM_BITS: usize = 0;
+static THREDA_NUM_BITS: usize = 5;
 static THREAD_NUM: usize = 1 << THREDA_NUM_BITS;
 static mut COMPLETE_CNT: u8 = 0u8;
 
 #[inline]
 fn net_interrupt_handler(handler: LocalCPtr<IRQHandler>) {
-    debug_println!("net_interrupt_handler");
     iface_poll(true);
-    debug_println!("net_interrupt_handler end");
     crate::device::interrupt_handler();
     handler.irq_handler_ack();
 }
 
 pub fn net_stack_test(boot_info: &BootInfo) -> sel4::Result<!> {
     crate::device::init(boot_info);
+    // transmit_test();
+    // recv_test();
     let (ntfn, handler) = crate::net::init();
     // BootInfo::init_thread_tcb().tcb_suspend()?;
     let eps = create_c_s_ipc_channel(THREDA_NUM_BITS);
@@ -104,17 +105,17 @@ pub fn net_stack_test(boot_info: &BootInfo) -> sel4::Result<!> {
             let (msg, badge) = ep.nb_recv(());
             if badge != 0 {
                 if badge == 1 {
-                    
+                    net_interrupt_handler(handler);
                 } else {
                     process_req(ep.clone());
                 }
             }
-            let mut recv_blocked_tasks = RECV_BLOCKED_TASKS.lock();
-            for task in recv_blocked_tasks.iter_mut() {
-                process_blocked_task(task);
-            }
-            recv_blocked_tasks.retain(|task| task.complete == false);
         }
+        let mut recv_blocked_tasks = RECV_BLOCKED_TASKS.lock();
+        for task in recv_blocked_tasks.iter_mut() {
+            process_blocked_task(task);
+        }
+        recv_blocked_tasks.retain(|task| task.complete == false);
     }
 
     sel4::BootInfo::init_thread_tcb().tcb_suspend()?;
@@ -339,7 +340,7 @@ fn tcp_server(args: usize, ipc_buffer_addr: usize) {
     unsafe {
         COMPLETE_CNT += 1;
     }
-    debug_println!("client cost: {}", get_clock() - start);
+    // debug_println!("client cost: {}", get_clock() - start);
     thread.tcb_suspend().unwrap();
     // loop {
     //     r#yield();

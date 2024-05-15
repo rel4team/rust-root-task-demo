@@ -22,7 +22,7 @@ use sel4::LocalCPtr;
 use sel4_root_task::debug_println;
 use uintr::{register_receiver, uipi_send};
 use crate::async_lib::{register_recv_cid, uintr_handler, wake_with_value, yield_now, AsyncArgs, SenderID, possible_switch};
-use crate::device::{init_net_interrupt_handler, INTERFACE, NET_DEVICE};
+use crate::device::{init_net_interrupt_handler, interrupt_handler, INTERFACE, NET_DEVICE};
 
 use sel4::get_clock;
 pub use tcp::*;
@@ -58,7 +58,7 @@ pub fn init() -> (LocalCPtr<Notification>, LocalCPtr<IRQHandler>){
     tcb.tcb_bind_notification(net_ntfn).unwrap();
     register_receiver(tcb, net_ntfn, uintr_handler as usize).unwrap();
 
-    let cid = coroutine_spawn_with_prio(Box::pin(net_poll()), 0);
+    let cid = coroutine_spawn_with_prio(Box::pin(net_poll(net_handler.clone())), 0);
     // let _ = coroutine_spawn_with_prio(Box::pin(poll_timer(get_clock())), 2);
     // debug_println!("init cid: {:?}", cid);
     let badge = register_recv_cid(&cid).unwrap() as u64;
@@ -66,7 +66,7 @@ pub fn init() -> (LocalCPtr<Notification>, LocalCPtr<IRQHandler>){
     return (net_ntfn, net_handler);
 }
 
-pub fn iface_poll(urgent: bool) {
+pub fn iface_poll(urgent: bool) -> bool {
     // let start = get_clock();
     static THRESHOLD: usize = 10;
     static mut POLL_CNT: usize = 0;
@@ -74,18 +74,18 @@ pub fn iface_poll(urgent: bool) {
         POLL_CNT += 1;
         if urgent || POLL_CNT >= THRESHOLD {
             // let start = get_clock();
-            debug_println!("poll before");
-            INTERFACE.lock().poll(
+            let ans = INTERFACE.lock().poll(
                 Instant::ZERO,
                 &mut *NET_DEVICE.as_mut_ptr(),
                 &mut SOCKET_SET.lock(),
             );
-            debug_println!("poll end");
             NET_POLL_CNT += 1;
             // NET_POLL_COST += get_clock() - start;
             // debug_println!("{} {}", NET_POLL_COST, NET_POLL_CNT);
             POLL_CNT = 0;
+            return ans;
         }
+        return false;
     }
     // unsafe {
     //     NET_POLL_CNT += 1;
@@ -114,12 +114,15 @@ async fn poll_timer(mut timeout: u64) {
 
 static mut NET_POLL_CNT: usize = 0;
 static mut NET_POLL_COST: u64 = 0;
-async fn net_poll() {
+async fn net_poll(handler: LocalCPtr<IRQHandler>) {
     // debug_println!("net poll cid: {:?}", coroutine_get_current());
     loop {
         // debug_println!("hello net poll");
         // let start = get_clock();
+        // while iface_poll(true) {};
         iface_poll(true);
+        interrupt_handler();
+        handler.irq_handler_ack();
         // debug_println!("poll end");
         unsafe {
             // NET_POLL_COST += get_clock() - start;
@@ -275,6 +278,7 @@ async fn tcp_accept_coroutine(cid: CoroutineId, port: u16, async_args: &mut Asyn
     let mut endpoint: IpListenEndpoint = IpListenEndpoint::default();
     endpoint.port = port;
     let handler = SOCKET_SET.lock().add(tcp_socket);
+    debug_println!("start listen");
     unsafe {
         LISTEN_TABLE.listen(endpoint, handler, coroutine_get_current()).unwrap();
         yield_now().await;

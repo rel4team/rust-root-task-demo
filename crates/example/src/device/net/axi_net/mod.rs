@@ -2,8 +2,12 @@ mod config;
 
 use core::ptr::NonNull;
 
+use alloc::borrow::ToOwned;
+use alloc::slice;
 use alloc::{boxed::Box, sync::Arc, vec};
+use async_runtime::utils::IndexAllocator;
 use axi_ethernet::{AxiEthernet, XAE_JUMBO_OPTION, XAE_BROADCAST_OPTION, LinkStatus};
+use lazy_static::lazy_static;
 use sel4::BootInfo;
 use sel4_root_task::debug_println;
 use sel4::cap_type::{Untyped, MegaPage};
@@ -19,7 +23,7 @@ use crate::image_utils::UserImageUtils;
 use crate::net::snoop_tcp_packet;
 use crate::{device::net::axi_net::config::{DMA_ADDRESS, ETH_ADDRESS}, object_allocator::GLOBAL_OBJ_ALLOCATOR};
 
-use self::config::{AXI_DMA_CONFIG, AXI_NET_CONFIG, MAC_ADDRESS};
+use self::config::{AXI_DMA_CONFIG, AXI_NET_CONFIG, MAC_ADDRESS, MTU};
 
 pub fn init(boot_info: &BootInfo) {
     init_mmio(boot_info);
@@ -96,6 +100,7 @@ pub fn eth_init() {
     eth.enable_rx_rject();
     eth.clear_rx_rject();
     eth.enable_rx_cmplt();
+    // eth.enable_tx_cmplt();
     eth.clear_rx_cmplt();
     eth.clear_tx_cmplt();
 
@@ -113,24 +118,73 @@ pub fn interrupt_handler() {
 
 
 pub static NET_DEVICE: Lazy<AxiNet> = Lazy::new(|| AxiNet::default());
+static mut DMA_BUFFER_POOL: [[u8; MTU]; 64] = [[0u8; MTU]; 64];
+static mut DMA_BUFFER_ALLOCATOR: IndexAllocator<64> = IndexAllocator::new();
 
-pub struct RxTokenWrapper(AxiNet, Box<[u8]>);
+
+struct DMABufferHandler {
+    handler: usize
+}
+
+impl DMABufferHandler {
+    #[inline]
+    pub fn new() -> Self {
+        unsafe {
+            let handler = DMA_BUFFER_ALLOCATOR.allocate().unwrap();
+            Self {
+                handler,
+            }
+        }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        MTU
+    }
+
+    #[inline]
+    pub fn get_mut_buffer(&mut self) -> *mut u8 {
+        unsafe {
+            DMA_BUFFER_POOL[self.handler].as_mut_ptr()
+        }
+    }
+
+    #[inline]
+    pub fn get_buffer(&self) -> *const u8 {
+        unsafe {
+            DMA_BUFFER_POOL[self.handler].as_ptr()
+        }
+    }
+}
+
+impl Drop for DMABufferHandler {
+    fn drop(&mut self) {
+        unsafe {
+            DMA_BUFFER_ALLOCATOR.release(self.handler);
+        }
+    }
+}
+
+pub struct RxTokenWrapper(AxiNet, DMABufferHandler);
 
 impl RxToken for RxTokenWrapper {
     fn preprocess(&self, sockets: &mut SocketSet<'_>) {
-        debug_println!("preprocess");
-        snoop_tcp_packet(self.1.as_ref(), sockets).ok();
+        // debug_println!("preprocess");
+        let buffer: &mut [u8] = unsafe {
+            slice::from_raw_parts_mut(self.1.get_buffer() as usize as *mut u8, self.1.len())
+        };
+        snoop_tcp_packet(buffer, sockets).ok();
     }
 
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let buf_ref = unsafe {
-            &mut *(Box::into_raw(self.1))
+        let buffer: &mut [u8] = unsafe {
+            slice::from_raw_parts_mut(self.1.get_buffer() as usize as *mut u8, self.1.len())
         };
         
-        f(buf_ref)
+        f(buffer)
     }
 }
 
@@ -139,14 +193,19 @@ impl TxToken for AxiNet {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let mut buffer = vec![0u8; len].into_boxed_slice();
-        let res = f(&mut buffer);
-        let buf_ptr = Box::into_raw(buffer) as *mut _;
+        // let mut buffer = vec![0u8; len].into_boxed_slice();
+        let mut buffer_handler = DMABufferHandler::new();
+        let raw_buffer_ptr = buffer_handler.get_mut_buffer();
+        let raw_buffer: &mut [u8] = unsafe {
+            slice::from_raw_parts_mut(raw_buffer_ptr, len)
+        };
+        let res = f(raw_buffer);
+        // let res = f(&mut buffer);
+        let len = raw_buffer.len();
+        // let tmp = Box::into_raw(buffer) as *mut usize as usize;
+        let buf_ptr: *mut u8 = UserImageUtils::get_heap_paddr(raw_buffer_ptr as usize) as *mut _;
         let buf = BufPtr::new(NonNull::new(buf_ptr).unwrap(), len);
-        let mut tbuf = self.dma.tx_submit(buf).unwrap().wait().unwrap();
-        let buf = unsafe { core::slice::from_raw_parts_mut(tbuf.as_mut_ptr(), tbuf.len()) };
-        let box_buf = unsafe { Box::from_raw(buf) };
-        drop(box_buf);
+        let mut tbuf = self.dma.tx_submit_with_translate(buf, UserImageUtils::get_heap_paddr).unwrap().wait().unwrap();
         res
     }
 }
@@ -162,26 +221,19 @@ impl Device for AxiNet {
     ) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let mut local_eth = self.eth.lock();
         if local_eth.can_receive() {
-            let mtu = self.capabilities().max_transmission_unit;
-            let _start = get_clock();
-            let buffer = vec![1u8; mtu].into_boxed_slice();
-            let len = buffer.len();
-            let tmp = Box::into_raw(buffer) as *mut usize as usize;
-            let buf_ptr: *mut u8 = UserImageUtils::get_heap_paddr(tmp) as *mut _;
-            debug_println!("tmp: {:#x}, {:#x}", tmp, UserImageUtils::get_heap_paddr(tmp));
-            let _start = get_clock();
+            // let mtu = self.capabilities().max_transmission_unit;
+            // let buffer = vec![0u8; mtu].into_boxed_slice();
+            let mut buffer_handler = DMABufferHandler::new();
+            let len = buffer_handler.len();
+            let buf_ptr: *mut u8 = UserImageUtils::get_heap_paddr(buffer_handler.get_mut_buffer() as usize) as *mut _;
+            // debug_println!("tmp: {:#x}, {:#x}", tmp, UserImageUtils::get_heap_paddr(tmp));
             let buf = BufPtr::new(NonNull::new(buf_ptr).unwrap(), len);
-            let mut rbuf = self.dma
+            let _ = self.dma
                                                 .rx_submit_with_translate(buf, UserImageUtils::get_heap_paddr)
                                                 .unwrap()
                                                 .wait()
                                                 .unwrap();
-            debug_println!("recev end0");
-            let buf = unsafe { core::slice::from_raw_parts_mut(rbuf.as_mut_ptr(), rbuf.len()) };
-            let mut box_buf = unsafe { Box::from_raw(buf) };
-            debug_println!("recev end");
-            // Some((RxTokenWrapper(self.clone(), box_buf), self.clone()))
-            None
+            Some((RxTokenWrapper(self.clone(), buffer_handler), self.clone()))
             // Some((self.clone(), self.clone()))
         } else {
             None
@@ -189,7 +241,7 @@ impl Device for AxiNet {
     }
 
     fn transmit(&mut self, _timestamp: smoltcp::time::Instant) -> Option<Self::TxToken<'_>> {
-        debug_println!("AxiNet transmit");
+        // debug_println!("AxiNet transmit");
         if self.dma.tx_channel.as_ref().unwrap().has_free_bd() {
             Some(self.clone())
         } else {
@@ -200,7 +252,7 @@ impl Device for AxiNet {
     fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = DeviceCapabilities::default();
         caps.medium = Medium::Ethernet;
-        caps.max_transmission_unit = 1514;
+        caps.max_transmission_unit = MTU;
         caps.max_burst_size = None;
         caps
     }
@@ -275,4 +327,56 @@ fn init_mmio(boot_info: &BootInfo) {
         }
 
     }
+}
+
+pub fn recv_test() {
+    debug_println!("start recv test");
+    const MTU: usize = 1500;
+    loop {
+        if !AXI_ETH.lock().can_receive() {
+            continue;
+        }
+        let buffer = vec![2u8; MTU].into_boxed_slice();
+        let len = buffer.len();
+        let tmp = Box::into_raw(buffer) as *mut usize as usize;
+        let buf_ptr: *mut u8 = UserImageUtils::get_heap_paddr(tmp) as *mut _;
+        debug_println!("vaddr: {:#x}, paddr: {:#x}", tmp, buf_ptr as usize);
+        let buf = BufPtr::new(NonNull::new(buf_ptr).unwrap(), len);
+        let mut rbuf = AXI_DMA
+            .rx_submit_with_translate(buf.clone(), UserImageUtils::get_heap_paddr)
+            .unwrap()
+            .wait()
+            .unwrap();
+        let buf_ptr = UserImageUtils::get_heap_vaddr(rbuf.as_mut_ptr() as usize) as *mut u8;
+        let slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf.len()) };
+        let box_buf = unsafe { Box::from_raw(slice) };
+        // debug_println!("single receive ok: {:?}", box_buf);
+        drop(box_buf);
+    }
+}
+
+pub fn transmit_test() {
+    debug_println!("start transmit test");
+    const MTU: usize = 1500;
+    let _tx_channel = AXI_DMA.tx_channel.as_ref().unwrap();
+    let mut buffer = vec![1u8; MTU].into_boxed_slice();
+    let len = buffer.len();
+    buffer[..6].copy_from_slice(&[0x00, 0x0A, 0x35, 0x01, 0x05, 0x06]);
+    buffer[6..12].copy_from_slice(&[0x00, 0x0A, 0x35, 0x01, 0x02, 0x03]);
+    buffer[12..14].copy_from_slice(&((MTU - 14) as u16).to_be_bytes());
+    let tmp = Box::into_raw(buffer) as *mut usize as usize;
+    let buf_ptr: *mut u8 = UserImageUtils::get_heap_paddr(tmp) as *mut _;
+    debug_println!("tmp: {:#x}, {:#x}", tmp, UserImageUtils::get_heap_paddr(tmp));
+    // let buf_ptr = Box::into_raw(buffer) as *mut _;
+    let buf = BufPtr::new(NonNull::new(buf_ptr).unwrap(), len);
+    for i in 0..36 {
+        let _buff = AXI_DMA
+            .tx_submit_with_translate(buf.clone(), UserImageUtils::get_heap_paddr)
+            .unwrap()
+            .wait()
+            .unwrap();
+    }
+    debug_println!("tx finished");
+    while !AXI_ETH.lock().is_tx_cmplt() {}
+    debug_println!("transmit test pass!");
 }

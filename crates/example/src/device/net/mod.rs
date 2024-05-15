@@ -12,6 +12,8 @@ use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 // pub use virtio_net::{NET_DEVICE, interrupt_handler};
 pub use axi_net::{NET_DEVICE, interrupt_handler};
 
+pub use axi_net::{transmit_test, recv_test};
+
 mod virtio_net;
 mod axi_net;
 

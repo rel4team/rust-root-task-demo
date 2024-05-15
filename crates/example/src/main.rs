@@ -88,7 +88,6 @@ fn main(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
 
     image_utils::UserImageUtils.init(bootinfo);
     GLOBAL_OBJ_ALLOCATOR.lock().init(bootinfo);
-
     // async_ipc_test(bootinfo)?;
     net_stack_test(bootinfo)?;
     // sync_ipc_test(bootinfo)?;

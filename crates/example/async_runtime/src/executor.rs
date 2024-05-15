@@ -112,8 +112,9 @@ impl Executor {
     pub fn wake(&mut self, cid: &CoroutineId) {
         // todo:  need to fix bugs
         // assert!(self.tasks.contains_key(cid));
-        if self.tasks[cid.0 as usize].clone().is_some() {
-            let prio = self.tasks[cid.0 as usize].clone().unwrap().prio;
+        let op_task = self.tasks[cid.0 as usize].clone();
+        if op_task.is_some() {
+            let prio = op_task.unwrap().prio;
             self.prio_bitmap.set(prio);
             // sel4::debug_println!("wake cid: {:?}, start: {:#x}, prio: {}", cid,(&self.ready_queue[prio]) as *const RingBuffer<CoroutineId, MAX_TASK_NUM_PER_PRIO> as usize, prio);
             self.ready_queue[prio].push(&cid).unwrap();

@@ -145,7 +145,7 @@ async fn tcp_server(nw_sender_id: SenderID) {
                     break;
                 }
                 // for i in 0..recv_size {
-                //     // debug_print!("{}", char::from(tcp_buffer.data[i]));
+                //     debug_print!("{}", char::from(tcp_buffer.data[i]));
                 // }
                 // debug_println!("");
             } else {
