@@ -8,7 +8,7 @@ use sel4::{CNodeCapData, InitCSpaceSlot, LocalCPtr, UntypedDesc};
 use sel4::cap_type::Untyped;
 use sel4::ObjectBlueprintArch;
 use sel4::UserContext;
-use sel4::sys::{seL4_TCBBits, seL4_EndpointBits};
+use sel4::sys::{seL4_EndpointBits, seL4_PageBits, seL4_TCBBits};
 use sel4_root_task::debug_println;
 use crate::image_utils::UserImageUtils;
 
@@ -138,6 +138,32 @@ impl ObjectAllocator {
         Ok(sel4::BootInfo::init_cspace_local_cptr::<sel4::cap_type::_4KPage>(
             slot,
         ))
+    }
+
+    pub fn alloc_many_frame(&mut self, cnt_bits: usize) -> Vec<LocalCPtr<sel4::cap_type::_4KPage>> {
+        let cnt = 1 << cnt_bits;
+        let mut ans = Vec::with_capacity(cnt);
+        let blueprint = sel4::ObjectBlueprint::Untyped {
+            size_bits: seL4_PageBits as usize + cnt_bits 
+        };
+        let untyped = self.get_the_first_untyped_slot(&blueprint);
+        let slot = self.empty.next().unwrap();
+        
+        for _ in 1..cnt {
+            self.empty.next().unwrap();
+        }
+        let cnode = sel4::BootInfo::init_thread_cnode();
+        let frame_blueprint = sel4::ObjectBlueprint::Arch(ObjectBlueprintArch::_4KPage);
+        untyped.untyped_retype(
+            &frame_blueprint,
+            &cnode.relative_self(),
+            slot,
+            cnt
+        ).unwrap();
+        for i in 0..cnt {
+            ans.push(sel4::BootInfo::init_cspace_local_cptr::<sel4::cap_type::_4KPage>(slot + i))
+        };
+        return ans;
     }
 
     pub fn alloc_tcb(&mut self) -> sel4::Result<LocalCPtr<sel4::cap_type::TCB>> {
@@ -293,7 +319,7 @@ impl ObjectAllocator {
         };
         let mut tp = raw_sp - 4096 * 128;
         tp = tp & (!((1 << 12) - 1));
-        debug_println!("tp: {:#x}", tp);
+        // debug_println!("tp: {:#x}", tp);
 
         user_context.inner_mut().tp = tp;
         *(user_context.pc_mut()) = unsafe { core::mem::transmute(func) };
@@ -310,7 +336,7 @@ impl ObjectAllocator {
         user_context.inner_mut().gp = gp;
         user_context.inner_mut().a0 = args as u64;
         user_context.inner_mut().a1 = ipc_buffer_addr as u64;
-        debug_println!("write register: {:?}", user_context);
+        // debug_println!("write register: {:?}", user_context);
         tcb.tcb_write_all_registers(false, &mut user_context)?;
 
         tcb.tcb_set_affinity(affinity)?;
