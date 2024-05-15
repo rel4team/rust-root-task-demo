@@ -27,6 +27,7 @@ mod async_tcp_test;
 mod sync_tcp_test;
 mod net;
 mod matrix;
+mod memory_allocator;
 
 use alloc::alloc::alloc_zeroed;
 use core::alloc::Layout;
