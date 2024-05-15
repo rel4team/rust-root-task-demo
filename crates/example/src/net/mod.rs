@@ -9,30 +9,31 @@ use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec;
 use smoltcp::wire::IpEndpoint;
+use core::cmp::min;
 use core::sync::atomic::Ordering::SeqCst;
 use smoltcp::iface::{SocketHandle, SocketSet};
 use smoltcp::socket::tcp::{Socket, SocketBuffer};
 use smoltcp::time::Instant;
 use spin::{Lazy, Mutex};
 use async_runtime::{coroutine_get_current, coroutine_spawn_with_prio, coroutine_wake, get_ready_num, runtime_init, CoroutineId, IPCItem};
-use sel4::cap_type::{Endpoint, Notification};
+use sel4::cap_type::{Endpoint, IRQHandler, Notification};
 use sel4::LocalCPtr;
 
 use sel4_root_task::debug_println;
 use uintr::{register_receiver, uipi_send};
 use crate::async_lib::{register_recv_cid, uintr_handler, wake_with_value, yield_now, AsyncArgs, SenderID, possible_switch};
-use crate::device::{init_net_interrupt_handler, INTERFACE, NET_DEVICE};
+use crate::device::{init_net_interrupt_handler, interrupt_handler, INTERFACE, NET_DEVICE};
 
 use sel4::get_clock;
 pub use tcp::*;
 pub use sync_tcp::*;
 pub use message::*;
-pub use listen_table::{snoop_tcp_packet, LISTEN_TABLE};
+pub use listen_table::{snoop_tcp_packet, LISTEN_TABLE, POLL_EPS};
 pub use tcp_buffer::*;
 use smoltcp::wire::IpListenEndpoint;
 
-pub const TCP_TX_BUF_LEN: usize = 4096;
-pub const TCP_RX_BUF_LEN: usize = 4096;
+pub const TCP_TX_BUF_LEN: usize = 8 * 4096;
+pub const TCP_RX_BUF_LEN: usize = 8 * 4096;
 
 #[thread_local]
 static mut NET_STACK_MAP: BTreeMap<SocketHandle, SenderID> = BTreeMap::new();
@@ -50,22 +51,22 @@ pub static SOCKET_2_CID: Lazy<Arc<Mutex<BTreeMap<SocketHandle, CoroutineId>>>> =
 pub static ADDR_2_CID: Lazy<Arc<Mutex<BTreeMap<IpEndpoint, CoroutineId>>>> =
     Lazy::new(|| Arc::new(Mutex::new(BTreeMap::new())));
 
-pub fn init() -> LocalCPtr<Notification> {
+pub fn init() -> (LocalCPtr<Notification>, LocalCPtr<IRQHandler>){
     runtime_init();
-    let (_net_handler, net_ntfn) = init_net_interrupt_handler();
+    let (net_handler, net_ntfn) = init_net_interrupt_handler();
     let tcb = sel4::BootInfo::init_thread_tcb();
     tcb.tcb_bind_notification(net_ntfn).unwrap();
     register_receiver(tcb, net_ntfn, uintr_handler as usize).unwrap();
 
-    let cid = coroutine_spawn_with_prio(Box::pin(net_poll()), 0);
+    let cid = coroutine_spawn_with_prio(Box::pin(net_poll(net_handler.clone())), 0);
     // let _ = coroutine_spawn_with_prio(Box::pin(poll_timer(get_clock())), 2);
     // debug_println!("init cid: {:?}", cid);
     let badge = register_recv_cid(&cid).unwrap() as u64;
     assert_eq!(badge, 0);
-    return net_ntfn;
+    return (net_ntfn, net_handler);
 }
 
-pub fn iface_poll(urgent: bool) {
+pub fn iface_poll(urgent: bool) -> bool {
     // let start = get_clock();
     static THRESHOLD: usize = 10;
     static mut POLL_CNT: usize = 0;
@@ -73,7 +74,7 @@ pub fn iface_poll(urgent: bool) {
         POLL_CNT += 1;
         if urgent || POLL_CNT >= THRESHOLD {
             // let start = get_clock();
-            INTERFACE.lock().poll(
+            let ans = INTERFACE.lock().poll(
                 Instant::ZERO,
                 &mut *NET_DEVICE.as_mut_ptr(),
                 &mut SOCKET_SET.lock(),
@@ -82,7 +83,9 @@ pub fn iface_poll(urgent: bool) {
             // NET_POLL_COST += get_clock() - start;
             // debug_println!("{} {}", NET_POLL_COST, NET_POLL_CNT);
             POLL_CNT = 0;
+            return ans;
         }
+        return false;
     }
     // unsafe {
     //     NET_POLL_CNT += 1;
@@ -111,19 +114,21 @@ async fn poll_timer(mut timeout: u64) {
 
 static mut NET_POLL_CNT: usize = 0;
 static mut NET_POLL_COST: u64 = 0;
-async fn net_poll() {
+async fn net_poll(handler: LocalCPtr<IRQHandler>) {
     // debug_println!("net poll cid: {:?}", coroutine_get_current());
     loop {
         // debug_println!("hello net poll");
         // let start = get_clock();
+        // while iface_poll(true) {};
         iface_poll(true);
+        interrupt_handler();
+        handler.irq_handler_ack();
         // debug_println!("poll end");
-        // unsafe {
-        //     NET_POLL_COST += get_clock() - start;
-        //     NET_POLL_CNT += 1;
-        //     // debug_println!("net poll: {}", NET_POLL_CNT);
-        //     debug_println!("iface_poll cost: {}", NET_POLL_COST);
-        // }
+        unsafe {
+            // NET_POLL_COST += get_clock() - start;
+            // NET_POLL_CNT += 1;
+            // debug_println!("iface_poll cost: {}", NET_POLL_COST);
+        }
 
         // for (handler, socket) in SOCKET_SET.lock().iter() {
         //     debug_println!("get socket, handle: {}, socket: {:?}", handler, socket);
@@ -149,15 +154,15 @@ pub async fn nw_recv_req_coroutine(arg: usize) {
                     unsafe { uipi_send(async_args.server_sender_id.unwrap() as u64); }
                 }
             }
-            if cnt >= 10 {
+            if cnt >= 20 {
                 possible_switch().await;
                 cnt = 0;
             }
         } else {
-            // debug_println!("nw recv cnt: {}", cnt);
-            cnt = 0;
             new_buffer.recv_req_status.store(false, SeqCst);
+            cnt = 0;
             yield_now().await;
+            // debug_println!("nw recv cnt: {}", cnt);
         }
     }
 }
@@ -189,7 +194,7 @@ async fn process_req(item: &IPCItem, arg: usize) -> Option<IPCItem> {
                 }
             } else {
                 // 假设所有数据大小都不大于socket buffer
-                panic!("fail to send");
+                // panic!("fail to send");
                 drop(bindings);
             }
         }
@@ -197,10 +202,12 @@ async fn process_req(item: &IPCItem, arg: usize) -> Option<IPCItem> {
             let cid = MessageDecoder::get_cid(&item);
             let handler: SocketHandle = MessageDecoder::get_socket_handler(&item);
             let tcp_buffer = MessageDecoder::get_buffer(&item);
+            let len = MessageDecoder::get_len(&item);
+            let min_len = min(tcp_buffer.data.len(), len);
             let mut bindings = SOCKET_SET.lock();
             let socket: &mut Socket = bindings.get_mut(handler);
             if socket.can_recv() {
-                if let Ok(read_size) = socket.recv_slice(&mut tcp_buffer.data) {
+                if let Ok(read_size) = socket.recv_slice(&mut tcp_buffer.data[..min_len]) {
                     drop(bindings);
                     let reply = MessageBuilder::recv_reply(cid, read_size);
                     return Some(reply);
@@ -232,11 +239,13 @@ async fn tcp_recv_coroutine(mut item: Option<IPCItem>, async_args: &mut AsyncArg
         let cid = MessageDecoder::get_cid(&item_inner);
         let handler: SocketHandle = MessageDecoder::get_socket_handler(&item_inner);
         let tcp_buffer = MessageDecoder::get_buffer(&item_inner);
+        let len = MessageDecoder::get_len(&item_inner);
+        let min_len = min(tcp_buffer.data.len(), len);
         loop {
             let mut bindings = SOCKET_SET.lock();
             let socket: &mut Socket = bindings.get_mut(handler);
             if socket.can_recv() {
-                if let Ok(read_size) = socket.recv_slice(&mut tcp_buffer.data) {
+                if let Ok(read_size) = socket.recv_slice(&mut tcp_buffer.data[..min_len]) {
                     drop(bindings);
                     let reply = MessageBuilder::recv_reply(cid, read_size);
                     new_buffer.res_items.write_free_item(&reply).unwrap();
@@ -269,6 +278,7 @@ async fn tcp_accept_coroutine(cid: CoroutineId, port: u16, async_args: &mut Asyn
     let mut endpoint: IpListenEndpoint = IpListenEndpoint::default();
     endpoint.port = port;
     let handler = SOCKET_SET.lock().add(tcp_socket);
+    debug_println!("start listen");
     unsafe {
         LISTEN_TABLE.listen(endpoint, handler, coroutine_get_current()).unwrap();
         yield_now().await;

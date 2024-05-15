@@ -1,11 +1,14 @@
 use core::sync::atomic::AtomicBool;
 use spin::Mutex;
 use crate::coroutine::CoroutineId;
+use crate::utils::SafeRingBuffer;
+use sel4::get_clock;
 use sel4::r#yield;
 use crate::utils::RingBuffer;
 
 pub const MAX_ITEM_NUM: usize = 4096;
-pub const MAX_IPC_MSG_LEN: usize = 8;
+pub const MAX_IPC_MSG_LEN: usize = 16;
+
 #[repr(align(8))]
 #[derive(Clone, Copy, Debug)]
 pub struct IPCItem {
@@ -43,45 +46,29 @@ impl IPCItem {
 }
 
 pub struct ItemsQueue {
-    buffer: RingBuffer<IPCItem, MAX_ITEM_NUM>,
-    lock: Mutex<()>,
+    buffer: SafeRingBuffer<IPCItem, MAX_ITEM_NUM>,
+    // lock: Mutex<()>,
 }
+
+
 
 impl ItemsQueue {
     pub fn new() -> Self {
         Self {
-            buffer: RingBuffer::new(),
-            lock: Mutex::new(()),
+            buffer: SafeRingBuffer::new(),
         }
     }
 
     #[inline]
     pub fn write_free_item(&mut self, item: &IPCItem) -> Result<(), ()> {
-        // let _lock = self.lock.lock();
-        // return self.buffer.push(item);
-        loop {
-            if let Some(_lock) = self.lock.try_lock() {
-                return self.buffer.push(item);
-            } else {
-                // sel4::debug_println!("w");
-                r#yield();
-            }
-        }
+        return self.buffer.push_safe(item);
     }
 
     #[inline]
     pub fn get_first_item(&mut self) -> Option<IPCItem> {
-        // let _lock = self.lock.lock();
-        // return self.buffer.pop();
-        loop {
-            if let Some(_lock) = self.lock.try_lock() {
-                return self.buffer.pop();
-            } else {
-                // sel4::debug_println!("g");
-                r#yield();
-            }
-        }
+        return self.buffer.pop_safe();
     }
+
 }
 
 

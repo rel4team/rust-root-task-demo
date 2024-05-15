@@ -10,13 +10,13 @@ use sel4::cap_type::{Endpoint, Notification, TCB};
 use sel4_root_task::{debug_println, debug_print};
 use sel4::{get_clock, r#yield};
 use uintr::{register_receiver, register_sender};
-use crate::async_lib::{AsyncArgs, recv_reply_coroutine, register_recv_cid, register_sender_buffer, SenderID, uintr_handler};
+use crate::async_lib::{recv_reply_coroutine, register_recv_cid, register_sender_buffer, uintr_handler, AsyncArgs, SenderID, UINT_TRIGGER};
 use crate::net::{listen, nw_recv_req_coroutine, recv, send, sync_listen, TcpBuffer};
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 
 pub fn net_stack_test(boot_info: &BootInfo) -> sel4::Result<!> {
     crate::device::init(boot_info);
-    let ntfn = crate::net::init();
+    let (ntfn, _) = crate::net::init();
     // BootInfo::init_thread_tcb().tcb_suspend()?;
     create_c_s_ipc_channel(ntfn);
     // coroutine_run_until_complete();
@@ -37,6 +37,12 @@ fn create_c_s_ipc_channel(ntfn: LocalCPtr<Notification>) {
         }
         &mut *(ptr as *mut NewBuffer)
     };
+    // let new_buffer_ref = unsafe {
+    //     let new_buffer = Arc::new(NewBuffer::new());
+    //     let res = &mut *(new_buffer.as_ref() as *const NewBuffer as usize as *mut NewBuffer);
+    //     forget(new_buffer);
+    //     res
+    // };
     let async_args = {
         let ref_args = Arc::new(AsyncArgs::new());
         let leaky_ref = unsafe { &mut *(ref_args.as_ref() as *const AsyncArgs as usize as *mut AsyncArgs) };
@@ -129,29 +135,46 @@ async fn tcp_server(nw_sender_id: SenderID) {
     // let socket_fd = accept(listen_fd).await.unwrap();
     // debug_println!("accept success!");
     let mut tcp_buffer = Box::new(TcpBuffer::new());
+    let need_send = true;
+    let need_recv = true;
     loop {
-        if let Ok(recv_size) = recv(listen_fd, tcp_buffer.as_mut()).await {
-            // debug_println!("recv success, recv_size: {}", recv_size);
-            
-            for i in 0..recv_size {
-                // debug_print!("{}", char::from(tcp_buffer.data[i]));
+        if need_recv {
+            if let Ok(recv_size) = recv(listen_fd, tcp_buffer.as_mut(), 1).await {
+                // debug_println!("recv success, recv_size: {}", recv_size);
+                if tcp_buffer.data[0] == '.' as u8 {
+                    break;
+                }
+                // for i in 0..recv_size {
+                //     debug_print!("{}", char::from(tcp_buffer.data[i]));
+                // }
+                // debug_println!("");
+            } else {
+                panic!("recv fail!");
             }
-            // debug_println!("");
-        } else {
-            panic!("recv fail!");
         }
-
-        // let resp_str = '!'.to_string().repeat(400);
-        let resp_str = String::from("connect ok!");
-        let resp = resp_str.as_bytes();
-        for i in 0..resp.len() {
-            tcp_buffer.data[i] = resp[i];
+        
+        if need_send {
+            // let resp_str = '!'.to_string().repeat(400);
+            let resp_str = String::from("!");
+            let resp = resp_str.as_bytes();
+            for i in 0..resp.len() {
+                tcp_buffer.data[i] = resp[i];
+            }
+            // let start = get_clock();
+            if let Ok(_send_size) = send(listen_fd, tcp_buffer.as_ref(), resp.len()).await {
+                // debug_println!("send success, send_size: {}", send_size);
+            }
+            // debug_println!("send cost: {}", get_clock() - start);
         }
-        // let start = get_clock();
-        if let Ok(_send_size) = send(listen_fd, tcp_buffer.as_ref(), resp.len()).await {
-            // debug_println!("send success, send_size: {}", send_size);
-        }
-        // debug_println!("send cost: {}", get_clock() - start);
+        
     }
+
+    let resp_str = String::from(".");
+    let resp = resp_str.as_bytes();
+    for i in 0..resp.len() {
+        tcp_buffer.data[i] = resp[i];
+    }
+    send(listen_fd, tcp_buffer.as_ref(), resp.len()).await;
+    // debug_println!("server cnt: {}", unsafe { UINT_TRIGGER });
     
 }

@@ -164,13 +164,13 @@ impl Future for YieldHelper {
 
 
 #[inline]
-pub async fn seL4_Call(sender_id: &SenderID, message_info: MessageInfo) -> Result<MessageInfo, ()> {
+pub async fn seL4_Call(sender_id: &SenderID, mut message_info: MessageInfo) -> Result<MessageInfo, ()> {
     let req_item = IPCItem::from(coroutine_get_current(), message_info.inner().0.inner()[0] as u32);
     match seL4_Call_with_item(sender_id, &req_item).await {
         Ok(res) => {
-            let mut reply = MessageInfo::new(0, 0, 0, 0);
-            reply.inner_mut().0.inner_mut()[0] = res.msg_info as u64;
-            Ok(reply)
+            // let mut reply = MessageInfo::new(0, 0, 0, 0);
+            message_info.inner_mut().0.inner_mut()[0] = res.msg_info as u64;
+            Ok(message_info)
         }
         _ => {
             Err(())
@@ -280,7 +280,6 @@ fn convert_option_mut_ref<T>(ptr: usize) -> Option<&'static mut T> {
 }
 
 pub async fn seL4_Call_with_item(sender_id: &SenderID, item: &IPCItem) -> Result<IPCItem, ()> {
-    // let start = get_clock();
     if let Some(new_buffer) = unsafe { convert_option_mut_ref::<NewBuffer>(SENDER_MAP[*sender_id as usize]) } {
         // todo: bugs need to fix
         let msg_info = item.msg_info;
@@ -299,6 +298,7 @@ pub async fn seL4_Call_with_item(sender_id: &SenderID, item: &IPCItem) -> Result
                 wake_syscall_handler();
             }
         }
+
         if let Some(res) = yield_now().await {
             return Ok(res);
         }
@@ -335,13 +335,13 @@ pub async fn seL4_Send_with_item(sender_id: &SenderID, item: &IPCItem) -> Result
 }
 
 pub async fn seL4_Untyped_Retype(service: CPtr,
-                                 r#type: ObjectBlueprint,
-                                 size_bits: usize,
-                                 root: CPtr,
-                                 node_index: usize,
-                                 node_depth: usize,
-                                 node_offset: usize,
-                                 num_objects: usize
+    r#type: ObjectBlueprint,
+    size_bits: usize,
+    root: CPtr,
+    node_index: usize,
+    node_depth: usize,
+    node_offset: usize,
+    num_objects: usize
 
 ) -> Result<MessageInfo, ()> {
     let sender_id = 63;
@@ -382,22 +382,22 @@ pub async fn seL4_Putstring(
     debug_println!("reL4_Putstring: length: {:?}", length);
     let round = length / 7;
     for i in 0..=round {
-        let sender_id = 63;
-        let mut syscall_item = IPCItem::new();
-        syscall_item.cid = cid;
-        syscall_item.msg_info = AsyncMessageLabel::PutString.into();
-        let num = if i < round {
-            7
-        } else {
-            length - 7 * i
-        };
-        syscall_item.extend_msg[0] = num as u16;
-        debug_println!("reL4_Putstring: num: {:?}", num);
-        let offset = i * 7;
-        for j in 0..num {
-            syscall_item.extend_msg[j + 1] = data[offset + j];
-        }
-        seL4_Send_with_item(&sender_id, &syscall_item).await;        
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::PutString.into();
+    let num = if i < round {
+    7
+    } else {
+    length - 7 * i
+    };
+    syscall_item.extend_msg[0] = num as u16;
+    debug_println!("reL4_Putstring: num: {:?}", num);
+    let offset = i * 7;
+    for j in 0..num {
+    syscall_item.extend_msg[j + 1] = data[offset + j];
+    }
+    seL4_Send_with_item(&sender_id, &syscall_item).await;        
     }      
     Err(())
 }

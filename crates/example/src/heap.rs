@@ -18,7 +18,7 @@ lazy_static! {
 }
 
 
-static mut HEAP_MEM: [u64; HEAP_SIZE * MAX_THREAD_SIZE / 8] = [0u64; HEAP_SIZE * MAX_THREAD_SIZE / 8];
+pub static mut HEAP_MEM: [u64; HEAP_SIZE * MAX_THREAD_SIZE / 8] = [0u64; HEAP_SIZE * MAX_THREAD_SIZE / 8];
 pub static mut HEAP: spin::Mutex<Heap> = Mutex::new(Heap::empty());
 
 pub fn init_heap() {

@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 use sel4::cap_type::Endpoint;
 use sel4::{with_ipc_buffer_mut, LocalCPtr, MessageInfo};
 use sel4_root_task::debug_println;
@@ -61,6 +62,8 @@ pub struct ListenTable {
     tcp: Box<[Mutex<Option<Box<ListenTableEntry>>>]>,
 }
 
+
+pub static POLL_EPS: Mutex<Vec<LocalCPtr<Endpoint>>> = Mutex::new(Vec::new());
 
 impl ListenTable {
     pub fn new() -> Self {
@@ -145,7 +148,6 @@ impl ListenTable {
                 // debug!("wake cid");
                 coroutine_wake(&entry.block_cids.pop_front().unwrap());
             }
-
             if !entry.block_ep.is_empty() {
                 let handler = entry.syn_queue.pop_front().unwrap();
                 let ep = entry.block_ep.pop_front().unwrap();
@@ -159,6 +161,7 @@ impl ListenTable {
                     }
                 );
                 ep.nb_send(msg);
+                POLL_EPS.lock().push(ep.clone());
             }
         }
     }
@@ -182,20 +185,24 @@ fn get_addr_tuple(handle: SocketHandle) -> (IpEndpoint, IpEndpoint) {
 
 pub fn snoop_tcp_packet(buf: &[u8], sockets: &mut SocketSet<'_>) -> Result<(), smoltcp::wire::Error> {
     use smoltcp::wire::{EthernetFrame, IpProtocol, Ipv4Packet, TcpPacket};
-
+    // debug_println!("hello1");
     let ether_frame = EthernetFrame::new_checked(buf)?;
+    // debug_println!("hello2");
     let ipv4_packet = Ipv4Packet::new_checked(ether_frame.payload())?;
 
 
     // debug!("[snoop_tcp_packet] arp_packet target_addr: {:?}, operator: {:?}, ether_frame.dst_addr: {:?}, {}, {}", arp_packet.target_protocol_addr(),
     //     arp_packet.operation(), ether_frame.dst_addr(), res1, res2);
+    // debug_println!("hello snoop_tcp_packet: {:?}\n", ipv4_packet.next_header());
     if ipv4_packet.next_header() == IpProtocol::Tcp {
+        // debug_println!("hello snoop_tcp_packet2\n");
         // debug_println!("snoop_tcp_packet");
         let tcp_packet = TcpPacket::new_checked(ipv4_packet.payload())?;
         let src_addr = (ipv4_packet.src_addr(), tcp_packet.src_port()).into();
         let dst_addr = (ipv4_packet.dst_addr(), tcp_packet.dst_port()).into();
         let is_first = tcp_packet.syn() && !tcp_packet.ack();
         if is_first {
+            // debug_println!("hello snoop_tcp_packet3\n");
             // debug_println!("incoming_tcp_packet");   
             // create a socket for the first incoming TCP packet, as the later accept() returns.
             unsafe {
