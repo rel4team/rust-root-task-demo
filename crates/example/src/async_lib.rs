@@ -220,6 +220,20 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
             //     coroutine_wake(&item.cid);
             // }
             debug_println!("recv_reply_coroutine_async_syscall: get item: {:?}", item);
+            let label: AsyncMessageLabel = AsyncMessageLabel::from(item.msg_info);
+            match label {
+                AsyncMessageLabel::RISCVPageGetAddress => {
+                    let mut paddr: usize = 0;
+                    paddr = paddr + (item.extend_msg[1] as usize) << 48;
+                    paddr = paddr + (item.extend_msg[2] as usize) << 32;
+                    paddr = paddr + (item.extend_msg[3] as usize) << 16;
+                    paddr = paddr + (item.extend_msg[4] as usize);
+                    debug_println!("recv_reply_coroutine_async_syscall: async RISCVPageGetAddress get paddr: {:#x}", paddr);
+                }
+                _ => {
+
+                }
+            }
             wake_with_value(&item.cid, &item);
             unsafe {
                 REPLY_COUNT += 1;
@@ -388,7 +402,7 @@ pub async fn seL4_Putstring(
     Err(())
 }
 
-pub async fn seL4_RISCVPage_Get_Address(
+pub async fn seL4_RISCV_Page_Get_Address(
     vaddr: usize
 ) -> Result<MessageInfo, ()> {
     let offset = vaddr % 4096;
@@ -397,7 +411,6 @@ pub async fn seL4_RISCVPage_Get_Address(
     let frame = LocalCPtr::<sel4::cap_type::_4KPage>::from_bits(frame_cap as u64);
     // frame.frame_get_address().unwrap() + offset;
     let bits = frame.cptr().bits();
-    debug_println!("seL4_RISCVPage_Get_Address: bits: {:x}", bits);
     let sender_id = 63;
     let mut syscall_item = IPCItem::new();
     let cid = coroutine_get_current();
@@ -474,6 +487,101 @@ pub async fn seL4_CNode_Copy(
     syscall_item.extend_msg[4] = src_index as u16;
     syscall_item.extend_msg[5] = src_depth as u16;
     syscall_item.extend_msg[6] = cap_right.into_inner().0.inner()[0] as u16;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}
+
+pub async fn seL4_CNode_Mint(
+    dest_root_cptr: CPtr,
+    dest_index: usize,
+    dest_depth: usize,
+    src_root_cptr: CPtr,
+    src_index: usize,
+    src_depth: usize,
+    cap_right: CapRights,
+    badge: u64
+) -> Result<MessageInfo, ()> {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::CNodeCopy.into();
+    syscall_item.extend_msg[0] = dest_root_cptr.bits() as u16;
+    syscall_item.extend_msg[1] = dest_index as u16;
+    syscall_item.extend_msg[2] = dest_depth as u16;
+    syscall_item.extend_msg[3] = src_root_cptr.bits() as u16;
+    syscall_item.extend_msg[4] = src_index as u16;
+    syscall_item.extend_msg[5] = src_depth as u16;
+    syscall_item.extend_msg[6] = cap_right.into_inner().0.inner()[0] as u16;
+    syscall_item.extend_msg[7] = badge as u16;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}
+
+pub async fn seL4_RISCV_PageTable_Map(
+    service_cptr: CPtr,
+    vspace_cptr: CPtr,
+    vaddr: usize,
+    attrs: usize
+) -> Result<MessageInfo, ()> {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::RISCVPageTableMap.into();
+    syscall_item.extend_msg[0] = service_cptr.bits() as u16;
+    syscall_item.extend_msg[1] = vspace_cptr.bits() as u16;
+    // debug_println!("seL4_RISCV_PageTable_Map: vaddr >> 12 = {:#x}", vaddr >> 12);
+    syscall_item.extend_msg[2] = (vaddr >> 12) as u16;
+    syscall_item.extend_msg[3] = attrs as u16;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}
+
+pub async fn seL4_RISCV_PageTable_Unmap(
+    service_cptr: CPtr,
+) -> Result<MessageInfo, ()> {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::RISCVPageTableUnmap.into();
+    syscall_item.extend_msg[0] = service_cptr.bits() as u16;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}
+
+pub async fn seL4_RISCV_Page_Map(
+    service_cptr: CPtr,
+    page_table_cptr: CPtr,
+    vaddr: usize,
+    rights: usize,
+    attrs: usize
+) -> Result<MessageInfo, ()> {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    // debug_println!("seL4_RISCV_Page_Map: service: {:#x}, page_table: {:x}, vaddr: {:#x}, rights: {:?}, attrs: {:?}", service_cptr.bits(), page_table_cptr.bits(), vaddr, rights, attrs);
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::RISCVPageMap.into();
+    syscall_item.extend_msg[0] = service_cptr.bits() as u16;
+    syscall_item.extend_msg[1] = page_table_cptr.bits() as u16;
+    syscall_item.extend_msg[2] = (vaddr >> 12) as u16;
+    syscall_item.extend_msg[3] = rights as u16;
+    syscall_item.extend_msg[4] = attrs as u16;
+    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    Err(())
+}
+
+pub async fn seL4_RISCV_Page_Unmap(
+    service_cptr: CPtr,
+) -> Result<MessageInfo, ()> {
+    let sender_id = 63;
+    let mut syscall_item = IPCItem::new();
+    let cid = coroutine_get_current();
+    syscall_item.cid = cid;
+    syscall_item.msg_info = AsyncMessageLabel::RISCVPageUnmap.into();
+    syscall_item.extend_msg[0] = service_cptr.bits() as u16;
     seL4_Call_with_item(&sender_id, &syscall_item).await;
     Err(())
 }
