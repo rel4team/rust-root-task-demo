@@ -280,6 +280,8 @@ fn convert_option_mut_ref<T>(ptr: usize) -> Option<&'static mut T> {
     })
 }
 
+pub static mut SUBMIT_SYSCALL_CNT: usize = 0;
+
 pub async fn seL4_Call_with_item(sender_id: &SenderID, item: &IPCItem) -> Result<IPCItem, ()> {
     if let Some(new_buffer) = unsafe { convert_option_mut_ref::<NewBuffer>(SENDER_MAP[*sender_id as usize]) } {
         // todo: bugs need to fix
@@ -296,6 +298,9 @@ pub async fn seL4_Call_with_item(sender_id: &SenderID, item: &IPCItem) -> Result
             } else {
                 // todo: submit syscall
                 // debug_println!("seL4_Call_with_item: Submit Syscall!");
+                unsafe {
+                    SUBMIT_SYSCALL_CNT += 1;
+                }
                 wake_syscall_handler();
             }
         }

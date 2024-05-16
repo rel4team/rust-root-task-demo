@@ -96,17 +96,15 @@ impl Executor {
             return None;
         }
         if let Some(cid) = self.ready_queue[prio].pop() {
-            // sel4::debug_println!("fetch prio: {}", prio);
-            // sel4::debug_println!("fetch cid: {:?}", cid);
-            let task = self.tasks[cid.0 as usize].clone().unwrap();
-            self.current = Some(cid);
-            if self.ready_queue[prio].empty() {
-                self.prio_bitmap.clear(prio);
+            if let Some(task) = self.tasks[cid.0 as usize].clone() {
+                self.current = Some(cid);
+                if self.ready_queue[prio].empty() {
+                    self.prio_bitmap.clear(prio);
+                }
+                return Some(task);
             }
-            Some(task)
-        } else {
-            None
         }
+        None
     }
 
     pub fn wake(&mut self, cid: &CoroutineId) {

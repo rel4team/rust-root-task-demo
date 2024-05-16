@@ -10,7 +10,7 @@ use async_runtime::{coroutine_run_until_blocked, coroutine_spawn, NewBuffer};
 use sel4::{get_clock, CNode, CapRights, LocalCPtr, ObjectBlueprint, ObjectBlueprintArch, VMAttributes, TCB};
 use sel4::{CPtr, Notification};
 use sel4_root_task::debug_println;
-use crate::async_lib::{AsyncArgs, UINT_TRIGGER};
+use crate::async_lib::{AsyncArgs, SUBMIT_SYSCALL_CNT, UINT_TRIGGER};
 use crate::async_lib::recv_reply_coroutine_async_syscall;
 
 use crate::async_lib::{recv_reply_coroutine, register_async_syscall_buffer, register_recv_cid, uintr_handler};
@@ -87,12 +87,13 @@ pub fn async_syscall_test(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     // coroutine_run_until_complete();
     
     // 传入参数表示is_sync，输入true测试同步系统调用，输入false测试异步系统调用
-    run_performance_test(false);
+    // run_performance_test(false);
+    run_performance_test_all();
 
     debug_println!("TEST PASS");
-    // debug_println!("Uintr: {:?}", unsafe {
-    //     UINT_TRIGGER
-    // });
+    debug_println!("Uintr: {:?}, submit syscall cnt: {:?}", unsafe {
+        UINT_TRIGGER
+    }, unsafe { SUBMIT_SYSCALL_CNT });
     sel4::BootInfo::init_thread_tcb().tcb_suspend()?;
     unreachable!()
 }
@@ -295,8 +296,9 @@ async fn test_async_riscv_page_unmap(obj_allocator: &Mutex<ObjectAllocator>) {
 
 const START_ADDR: usize = 0x200_0000;
 const PAGE_SIZE: usize = 0x1000;
-const MAX_PAGE_NUM: usize = 128;
-const EPOCH: usize = 1;
+const MAX_PAGE_NUM_BITS: usize = 9;
+const MAX_PAGE_NUM: usize = 1 << MAX_PAGE_NUM_BITS;
+const EPOCH: usize = 10;
 
 static mut FRAMES: [LocalCPtr<_4KPage>; MAX_PAGE_NUM] = [LocalCPtr::from_bits(0); MAX_PAGE_NUM];
 
@@ -310,8 +312,8 @@ fn run_performance_test(is_sync: bool) {
         let time = end - start;
         debug_println!("\nSyncMemoryAllocator: Test Finish!\nTime Sum: {:?}, Average: {:?}", time, time / MAX_PAGE_NUM / EPOCH);
     } else {
-        let start = get_clock() as usize;
         async_memory_test();
+        let start = get_clock() as usize;
         coroutine_run_until_complete();
         let end = get_clock() as usize;
         let time = end - start;
@@ -319,16 +321,41 @@ fn run_performance_test(is_sync: bool) {
     }
 }
 
+fn run_performance_test_all() {
+    performance_test_init();
+    let start = get_clock() as usize;
+    sync_memory_test();
+    // sync_test_address(new_buffer_ptr);
+    let end = get_clock() as usize;
+    let time = end - start;
+    debug_println!("\nSyncMemoryAllocator: Test Finish!\nTime Sum: {:?}, Average: {:?}", time, time / MAX_PAGE_NUM / EPOCH);
+    
+    async_memory_test();
+    let start = get_clock() as usize;
+    coroutine_run_until_complete();
+    let end = get_clock() as usize;
+    let time = end - start;
+    debug_println!("\nAsyncMemoryAllocator: Test Finish!\nTime Sum: {:?}, Average: {:?}", time, time / MAX_PAGE_NUM / EPOCH);
+}
+
+
 fn performance_test_init() {
     // 初始化
     let obj_allocator = unsafe {
         &GLOBAL_OBJ_ALLOCATOR
     };
     // 分配页框
-    let ans = obj_allocator.lock().alloc_many_frame(8);
+    let ans1 = obj_allocator.lock().alloc_many_frame(MAX_PAGE_NUM_BITS - 1);
+    let ans2 = obj_allocator.lock().alloc_many_frame(MAX_PAGE_NUM_BITS - 1);
     for i in 0..MAX_PAGE_NUM {
-        unsafe {
-            FRAMES[i] = ans[i];
+        if i < MAX_PAGE_NUM / 2 {
+            unsafe {
+                FRAMES[i] = ans1[i];
+            }
+        } else {
+            unsafe {
+                FRAMES[i] = ans2[i - MAX_PAGE_NUM / 2 ];
+            }
         }
     }
     // 申请页表
@@ -345,7 +372,7 @@ fn async_memory_test() {
         let frame = unsafe {
             FRAMES
         }[i];
-        coroutine_spawn_with_prio(Box::pin(async_memery_single_test(frame, vaddr)), 2);
+        coroutine_spawn_with_prio(Box::pin(async_memery_single_test(frame, vaddr)), 0);
         vaddr = vaddr + PAGE_SIZE;
     }
 }

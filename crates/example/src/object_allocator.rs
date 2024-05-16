@@ -2,6 +2,7 @@ use alloc::alloc::alloc_zeroed;
 use alloc::vec::{self, Vec};
 use core::alloc::Layout;
 use core::arch::asm;
+use core::borrow::BorrowMut;
 use core::ops::Range;
 use spin::Mutex;
 use sel4::{CNodeCapData, InitCSpaceSlot, LocalCPtr, UntypedDesc};
@@ -16,8 +17,14 @@ use crate::image_utils::UserImageUtils;
 pub static GLOBAL_OBJ_ALLOCATOR: Mutex<ObjectAllocator> = Mutex::new(ObjectAllocator::default());
 
 
+#[derive(Clone)]
+struct UsedUntypedDesc {
+    pub desc: UntypedDesc,
+    pub used: bool,
+}
+
 pub struct ObjectAllocator {
-    untyped_list: Vec<UntypedDesc>,
+    untyped_list: Vec<UsedUntypedDesc>,
     untyped_start: InitCSpaceSlot,
     empty: Range<InitCSpaceSlot>,
 }
@@ -25,8 +32,16 @@ pub struct ObjectAllocator {
 #[warn(dead_code)]
 impl ObjectAllocator {
     pub fn new(bootinfo: &sel4::BootInfo) -> Self {
+        let mut untyped_list = Vec::new();
+        let v = bootinfo.untyped_list().to_vec();
+        for item in v {
+            untyped_list.push(UsedUntypedDesc{
+                desc: item,
+                used: false,
+            })
+        }
         Self {
-            untyped_list: bootinfo.untyped_list().to_vec(),
+            untyped_list,
             untyped_start: bootinfo.untyped().start,
             empty: bootinfo.empty()
         }
@@ -42,7 +57,15 @@ impl ObjectAllocator {
 
     pub fn init(&mut self, bootinfo: &sel4::BootInfo) {
         // debug_println!("untyped list: {:?}", bootinfo.untyped_list().to_vec());
-        self.untyped_list = bootinfo.untyped_list().to_vec();
+        let mut untyped_list = Vec::new();
+        let v = bootinfo.untyped_list().to_vec();
+        for item in v {
+            untyped_list.push(UsedUntypedDesc{
+                desc: item,
+                used: false,
+            })
+        }
+        self.untyped_list = untyped_list;
         self.untyped_start = bootinfo.untyped().start;
         self.empty = bootinfo.empty();
     }
@@ -53,9 +76,13 @@ impl ObjectAllocator {
                 .untyped_list
                 .iter()
                 .position(|desc| {
-                    !desc.is_device() && desc.size_bits() >= blueprint.physical_size_bits()
+                    !desc.desc.is_device() && desc.desc.size_bits() >= blueprint.physical_size_bits() && desc.used == false
                 }).unwrap();
-            self.untyped_list.remove(idx);
+            // debug_println!("blueprint.physical_size_bits(): {:?}, {:?}", 
+            //     blueprint.physical_size_bits(),
+            //     self.untyped_list[idx].size_bits());
+            // self.untyped_list.remove(idx);
+            self.untyped_list[idx].used = true;
             let slot = self.untyped_start + idx;
             sel4::BootInfo::init_cspace_local_cptr::<Untyped>(slot)
         }
