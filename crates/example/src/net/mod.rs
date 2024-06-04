@@ -235,7 +235,7 @@ async fn process_req(item: &IPCItem, arg: usize) -> Option<IPCItem> {
             }
         }
         _ => {
-            panic!("wrong Request format")
+            panic!("wrong Request format, item: {:?}", item);
         }
     }
     None
@@ -286,8 +286,6 @@ async fn tcp_accept_coroutine(cid: CoroutineId, port: u16, async_args: &mut Asyn
     let tcp_rx_buffer = SocketBuffer::new(vec![0; TCP_RX_BUF_LEN]);
     let tcp_tx_buffer = SocketBuffer::new(vec![0; TCP_TX_BUF_LEN]);
     let mut tcp_socket = Socket::new(tcp_rx_buffer, tcp_tx_buffer);
-    tcp_socket.set_ack_delay(None);
-    tcp_socket.set_nagle_enabled(false);
     // debug_println!("port: {}", port);
 
     tcp_socket.listen(port).unwrap();

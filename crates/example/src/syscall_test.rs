@@ -91,9 +91,6 @@ pub fn async_syscall_test(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     run_performance_test_all();
 
     debug_println!("TEST PASS");
-    debug_println!("Uintr: {:?}, submit syscall cnt: {:?}", unsafe {
-        UINT_TRIGGER
-    }, unsafe { SUBMIT_SYSCALL_CNT });
     sel4::BootInfo::init_thread_tcb().tcb_suspend()?;
     unreachable!()
 }
@@ -329,13 +326,14 @@ fn run_performance_test_all() {
     let end = get_clock() as usize;
     let time = end - start;
     debug_println!("\nSyncMemoryAllocator: Test Finish!\nTime Sum: {:?}, Average: {:?}", time, time / MAX_PAGE_NUM / EPOCH);
-    
+    debug_println!("syscall invoke count: {:?}", TEST_REPLY_NUM);
     async_memory_test();
     let start = get_clock() as usize;
     coroutine_run_until_complete();
     let end = get_clock() as usize;
     let time = end - start;
     debug_println!("\nAsyncMemoryAllocator: Test Finish!\nTime Sum: {:?}, Average: {:?}", time, time / MAX_PAGE_NUM / EPOCH);
+    debug_println!("syscall invoke count: {:?}, UIntr trigger: {}", unsafe { SUBMIT_SYSCALL_CNT }, unsafe { UINT_TRIGGER });
 }
 
 

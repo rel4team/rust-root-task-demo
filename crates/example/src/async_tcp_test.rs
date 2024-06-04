@@ -67,16 +67,31 @@ fn create_c_s_ipc_channel(ntfn: LocalCPtr<Notification>) {
         sel4::CapRights::write_only(),
         badge,
     ).unwrap();
+    let _lock = async_args.lock.lock();
     async_args.req_ntfn = Some(badged_notification.cptr().bits());
-    async_args.child_tcb = Some(GLOBAL_OBJ_ALLOCATOR.lock().create_thread(tcp_server_thread, async_args.get_ptr(), 255, 0, true).unwrap().cptr().bits());
-    while async_args.reply_ntfn.is_none() {}
+    drop(_lock);
+    let child_tcb = Some(GLOBAL_OBJ_ALLOCATOR.lock().create_thread(tcp_server_thread, async_args.get_ptr(), 255, 0, true).unwrap().cptr().bits());
+    let _lock = async_args.lock.lock();
+    async_args.child_tcb = child_tcb;
+    drop(_lock);
+    while true {
+        let _lock = async_args.lock.lock();
+        if async_args.reply_ntfn.is_some() {
+            break;
+        }
+        drop(_lock);
+        r#yield();
+    }
+    // while async_args.reply_ntfn.is_none() {}
     let res_send_reply_id = register_sender(LocalCPtr::from_bits(async_args.reply_ntfn.unwrap()));
     if res_send_reply_id.is_err() {
         panic!("fail to register_sender!")
     }
     let reply_id = res_send_reply_id.unwrap();
+    let _lock = async_args.lock.lock();
     async_args.server_sender_id = Some(reply_id as SenderID);
     async_args.server_ready = true;
+    drop(_lock);
 
 }
 
@@ -88,7 +103,15 @@ fn tcp_server_thread(arg: usize, ipc_buffer_addr: usize) {
     sel4::set_ipc_buffer(ipcbuf);
     runtime_init();
     let async_args = AsyncArgs::from_ptr(arg);
-    while async_args.child_tcb.is_none() || async_args.req_ntfn.is_none() || async_args.ipc_new_buffer.is_none() {}
+    while true {
+        let _lock = async_args.lock.lock();
+        if async_args.child_tcb.is_some() && async_args.req_ntfn.is_some() && async_args.ipc_new_buffer.is_some() {
+            break;
+        }
+        drop(_lock);
+        r#yield();
+    }
+    // while async_args.child_tcb.is_none() || async_args.req_ntfn.is_none() || async_args.ipc_new_buffer.is_none() {}
     let cid = coroutine_spawn_with_prio(Box::pin(recv_reply_coroutine(arg, usize::MAX)), 0);
     let badge = register_recv_cid(&cid).unwrap() as u64;
     let tcb = LocalCPtr::<TCB>::from_bits(async_args.child_tcb.unwrap());
@@ -113,9 +136,19 @@ fn tcp_server_thread(arg: usize, ipc_buffer_addr: usize) {
     }
 
     let sender_id = res_sender_id.unwrap();
+    let _lock = async_args.lock.lock();
     async_args.client_sender_id = Some(sender_id);
     async_args.reply_ntfn = Some(badged_reply_notification.bits());
-    while !async_args.server_ready {}
+    drop(_lock);
+    while true {
+        let _lock = async_args.lock.lock();
+        if async_args.server_ready {
+            break;
+        }
+        drop(_lock);
+        r#yield();
+    }
+    // while !async_args.server_ready {}
 
     for _ in 0..32 {
         coroutine_spawn_with_prio(Box::pin(tcp_server(sender_id)), 1);

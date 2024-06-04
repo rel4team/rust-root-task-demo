@@ -1,8 +1,10 @@
 use alloc::collections::BTreeMap;
 use sel4_logging::log::debug;
 use sel4_root_task::debug_println;
+use spin::mutex::Mutex;
 use core::future::Future;
 use core::pin::Pin;
+use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::SeqCst;
 use core::task::{Context, Poll};
 use async_runtime::{coroutine_delay_wake, coroutine_get_current, coroutine_possible_switch, coroutine_wake, AsyncMessageLabel, CoroutineId, IPCItem, NewBuffer, MAX_TASK_NUM};
@@ -85,6 +87,8 @@ pub struct AsyncArgs {
     pub child_tcb: Option<CPtrBits>,
     pub ipc_new_buffer: Option<&'static mut NewBuffer>,
     pub server_ready: bool,
+    pub lock: Mutex<()>,
+
 }
 
 impl AsyncArgs {
@@ -97,6 +101,7 @@ impl AsyncArgs {
             child_tcb: None,
             ipc_new_buffer: None,
             server_ready: false,
+            lock: Mutex::new(()),
         }
     }
 
@@ -209,6 +214,7 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
 
 pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num: usize) {
     // let cid = coroutine_get_current();
+    #[thread_local]
     static mut REPLY_COUNT: usize = 0;
     let new_buffer = NewBuffer::from_ptr(new_buffer_ptr);
     loop {
@@ -252,6 +258,26 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
 
 
 pub fn uintr_handler(_frame: *mut uintr_frame, irqs: usize) -> usize {
+    unsafe {
+        UINT_TRIGGER += 1;
+    }
+    // sel4::debug_println!("Hello, uintr_handler!: {}", irqs);
+    let mut local = irqs;
+    let mut bit_index = 0;
+    while local != 0 {
+        if local & 1 == 1 {
+            // sel4::debug_println!("Hello, uintr_handler!: {}", irqs);
+            wake_recv_coroutine(bit_index).unwrap();
+        }
+        local >>= 1;
+        bit_index += 1;
+    }
+
+    return 0;
+}
+
+pub fn uintr_handler2(_frame: *mut uintr_frame, irqs: usize) -> usize {
+    debug_println!("uintr_handler2");
     unsafe {
         UINT_TRIGGER += 1;
     }

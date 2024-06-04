@@ -4,8 +4,8 @@ use sel4::BootInfo;
 
 mod net;
 
-pub use net::{init_net_interrupt_handler, interrupt_handler};
-pub use net::{transmit_test, recv_test};
+pub use net::{init_net_interrupt_handler, interrupt_handler, AXI_DMA, AXI_ETH};
+// pub use net::{transmit_test, recv_test};
 
 pub use net::{INTERFACE, NET_DEVICE};
 use sel4_root_task::debug_println;

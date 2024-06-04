@@ -36,12 +36,13 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
     GIT_TAG v0.4.4 # Optionally specify a commit hash, version tag or branch here
 )
-
 set(Rust_CARGO_TARGET "riscv64imac-sel4" CACHE STRING "")
+set(CARGO_BUILD_TYPE "release")
 # Set any global configuration variables such as `Rust_TOOLCHAIN` before this line!
 FetchContent_MakeAvailable(Corrosion)
 corrosion_import_crate(
     MANIFEST_PATH "${CMAKE_SOURCE_DIR}/Cargo.toml"
+    PROFILE "release"
     )
 
 corrosion_set_linker(example rust-lld)

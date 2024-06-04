@@ -12,9 +12,10 @@ use sel4::{cap_type::Endpoint, with_ipc_buffer, BootInfo, CPtr, IPCBuffer, Local
 use sel4_root_task::{debug_print, debug_println};
 use smoltcp::iface::SocketHandle;
 use smoltcp::socket::tcp::{Socket, SocketBuffer};
+use smoltcp::time::Duration;
 use smoltcp::wire::IpListenEndpoint;
 use spin::Mutex;
-use crate::device::{recv_test, transmit_test};
+// use crate::device::{recv_test, transmit_test};
 use crate::net::{iface_poll, TcpBuffer, LISTEN_TABLE, POLL_EPS, SOCKET_SET};
 use crate::{
     net::{
@@ -159,8 +160,6 @@ fn process_req(ep: LocalCPtr<Endpoint>) {
             let tcp_rx_buffer = SocketBuffer::new(vec![0; TCP_RX_BUF_LEN]);
             let tcp_tx_buffer = SocketBuffer::new(vec![0; TCP_TX_BUF_LEN]);
             let mut tcp_socket = Socket::new(tcp_rx_buffer, tcp_tx_buffer);
-            tcp_socket.set_ack_delay(None);
-            tcp_socket.set_nagle_enabled(false);
             // debug_println!("port: {}", port);
 
             tcp_socket.listen(port).unwrap();

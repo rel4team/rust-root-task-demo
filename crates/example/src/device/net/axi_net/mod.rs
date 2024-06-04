@@ -180,6 +180,7 @@ impl RxToken for RxTokenWrapper {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
+        // debug_println!("rx consume");
         let buffer: &mut [u8] = unsafe {
             slice::from_raw_parts_mut(self.1.get_buffer() as usize as *mut u8, self.1.len())
         };

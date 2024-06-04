@@ -41,10 +41,10 @@ impl UserImageUtils {
 
     #[inline]
     pub fn get_heap_paddr(vaddr: usize) -> usize {
-        // unsafe {
-        //     vaddr + HEAP_P_V_OFFSET
-        // }
-        UserImageUtils.get_user_image_frame_paddr(vaddr)
+        unsafe {
+            vaddr + HEAP_P_V_OFFSET
+        }
+        // UserImageUtils.get_user_image_frame_paddr(vaddr)
     }
 
     #[inline]
