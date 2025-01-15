@@ -117,7 +117,7 @@ impl ListenTable {
             let syn_queue = &mut entry.syn_queue;
             assert!(!syn_queue.is_empty());
             let handle = syn_queue.pop_front().unwrap();
-            // debug!("[accept] handler: {}", handle);
+            // debug_println!("[accept] handler: {}", handle);
             assert!(is_connected(handle));
             Ok((handle, get_addr_tuple(handle)))
         } else {
@@ -145,7 +145,7 @@ impl ListenTable {
             }
 
             if !entry.block_cids.is_empty() {
-                // debug!("wake cid");
+                // debug_println!("wake cid");
                 coroutine_wake(&entry.block_cids.pop_front().unwrap());
             }
             if !entry.block_ep.is_empty() {

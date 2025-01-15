@@ -10,9 +10,9 @@ use sel4::cap_type::{IRQHandler, Notification};
 use crate::device::net::virtio_net::get_net_device;
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 // pub use virtio_net::{NET_DEVICE, interrupt_handler};
-pub use axi_net::{NET_DEVICE, interrupt_handler};
+pub use axi_net::{NET_DEVICE, interrupt_handler, AXI_DMA, AXI_ETH};
 
-pub use axi_net::{transmit_test, recv_test};
+// pub use axi_net::{transmit_test, recv_test};
 
 mod virtio_net;
 mod axi_net;

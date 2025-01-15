@@ -1,3 +1,5 @@
+use sel4_root_task::debug_println;
+
 pub type Matrix<const N: usize> = [[u64; N]; N];
 
 fn init_matrix<const N: usize>() -> Matrix<N> {
@@ -24,8 +26,10 @@ fn matrix_multiply<const N: usize>(matrix1: &Matrix<N>, matrix2: &Matrix<N>) -> 
     result
 }
 
-pub fn matrix_test<const N: usize>() {
-    let a = init_matrix::<N>();
-    let b = init_matrix::<N>();
-    let _c = matrix_multiply::<N>(&a, &b);
+pub fn matrix_test<const N: usize>() -> Matrix<N> {
+    let mut a = init_matrix::<N>();
+    for _ in 0..4 {
+        a = matrix_multiply::<N>(&a, &a);
+    }
+    a
 }

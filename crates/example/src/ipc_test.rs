@@ -20,8 +20,8 @@ use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 
 static SEND_NUM: usize = 20480;
 static mut MUTE_SEND_NUM: usize = SEND_NUM;
-static COROUTINE_NUM: usize = 1;
-const MATRIX_SIZE: usize = 1;
+static COROUTINE_NUM: usize = 8;
+const MATRIX_SIZE: usize = 4;
 
 pub fn mutex_print(s: String) {
     static PRINT_LOCK: Mutex<()> = Mutex::new(());
@@ -36,8 +36,19 @@ pub fn async_helper_thread(arg: usize, ipc_buffer_addr: usize) {
     };
     sel4::set_ipc_buffer(ipcbuf);
     runtime_init();
+    debug_println!("async_helper_thread start2");
     let async_args = AsyncArgs::from_ptr(arg);
-    while async_args.child_tcb.is_none() || async_args.req_ntfn.is_none() || async_args.ipc_new_buffer.is_none() {}
+    while true {
+        let _lock = async_args.lock.lock();
+        if async_args.child_tcb.is_some() && async_args.req_ntfn.is_some() && async_args.ipc_new_buffer.is_some() {
+            break;
+        }
+        drop(_lock);
+        r#yield();
+    }
+    // while async_args.child_tcb.is_none() || async_args.req_ntfn.is_none() || async_args.ipc_new_buffer.is_none() {
+    //     // debug_println!("{} {} {}", async_args.child_tcb.is_none(), async_args.req_ntfn.is_none(), async_args.ipc_new_buffer.is_none());
+    // }
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
     debug_println!("[client] exec_ptr: {:#x}", get_executor_ptr());
     let cid = coroutine_spawn_with_prio(Box::pin(recv_reply_coroutine(arg, SEND_NUM)), 0);
@@ -67,10 +78,18 @@ pub fn async_helper_thread(arg: usize, ipc_buffer_addr: usize) {
     }
 
     let sender_id = res_sender_id.unwrap();
+    let _lock = async_args.lock.lock();
     async_args.client_sender_id = Some(sender_id);
     async_args.reply_ntfn = Some(badged_reply_notification.bits());
-
-    while !async_args.server_ready {}
+    drop(_lock);
+    while true {
+        let _lock = async_args.lock.lock();
+        if async_args.server_ready {
+            break;
+        }
+        drop(_lock);
+        r#yield();
+    }
     let base = 100;
     for i in 0..COROUTINE_NUM {
         coroutine_spawn(Box::pin(client_call_test(sender_id, (base + i) as u64)));
@@ -121,7 +140,7 @@ async fn recv_req_coroutine(arg: usize) {
         if let Some(mut item) = new_buffer.req_items.get_first_item() {
             // item.msg_info += 1;
             // debug_println!("hello get item");
-            matrix_test::<MATRIX_SIZE>();
+            let _res = matrix_test::<MATRIX_SIZE>();
             new_buffer.res_items.write_free_item(&item).unwrap();
             if new_buffer.recv_reply_status.load(SeqCst) == false {
                 new_buffer.recv_reply_status.store(true, SeqCst);
@@ -168,7 +187,7 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
     recv_tcb.tcb_bind_notification(unbadged_notification)?;
     register_receiver(recv_tcb, unbadged_notification, uintr_handler as usize)?;
 
-
+    let _lock = async_args.lock.lock();
     async_args.req_ntfn = Some(badged_notification.cptr().bits());
     // debug_println!("NEW BUFFER ptr: {:#x}", unsafe { NEW_BUFFER.as_mut_ptr() as usize});
     let new_buffer_layout = Layout::from_size_align(size_of::<NewBuffer>(), 4096).expect("Failed to create layout for page aligned memory allocation");
@@ -180,15 +199,29 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
         &mut *(ptr as *mut NewBuffer)
     };
     async_args.ipc_new_buffer = unsafe { Some(ipc_new_buffer) };
-    async_args.child_tcb = Some(obj_allocator.lock().create_thread(async_helper_thread, async_args.get_ptr(), 255, 0, true)?.cptr().bits());
-    while async_args.reply_ntfn.is_none() {}
+    drop(_lock);
+    let child_tcb = Some(obj_allocator.lock().create_thread(async_helper_thread, async_args.get_ptr(), 255, 0, true)?.cptr().bits());
+    let _lock = async_args.lock.lock();
+    async_args.child_tcb = child_tcb;
+    drop(_lock);
+    while true {
+        let _lock = async_args.lock.lock();
+        if async_args.reply_ntfn.is_some() {
+            break;
+        }
+        drop(_lock);
+        r#yield();
+    }
+    // while async_args.reply_ntfn.is_none() {}
     let res_send_reply_id = register_sender(LocalCPtr::from_bits(async_args.reply_ntfn.unwrap()));
     if res_send_reply_id.is_err() {
         panic!("fail to register_sender!")
     }
     let reply_id = res_send_reply_id.unwrap();
+    let _lock = async_args.lock.lock();
     async_args.server_sender_id = Some(reply_id as SenderID);
     async_args.server_ready = true;
+    drop(_lock);
 
     // coroutine_run_until_complete();
     while !coroutine_is_empty() {
@@ -218,9 +251,10 @@ fn sync_helper_thread(ep_bits: usize, ipc_buffer_addr: usize) {
     let reply = ep.call(msg);
     debug_println!("get reply: {:?}", reply);
     let base = 100;
-    let mut msg_info = MessageInfo::new(0, 0,0, 1);
+    let mut msg_info = MessageInfo::new(0, 0,0, 5);
     let start = get_clock();
     for i in 0..SEND_NUM {
+        // let mut msg_info = MessageInfo::new(0, 0,0, 1);
         // msg_info.inner_mut().0.inner_mut()[0] = ((base + i) as u64) % 3;
         let _reply = ep.call(msg_info.clone());
         // debug_println!("get reply: {:?}", reply);
