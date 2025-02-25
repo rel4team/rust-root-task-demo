@@ -19,6 +19,7 @@ use core::pin::Pin;
 pub use executor::*;
 pub use new_buffer::*;
 pub use coroutine::*;
+use log::debug;
 pub use message_info::*;
 
 #[thread_local]
@@ -62,10 +63,11 @@ pub fn coroutine_possible_switch() -> bool {
 }
 
 #[inline]
-pub fn coroutine_delay_wake(cid: &CoroutineId) {
+pub fn coroutine_delay_wake(cid: CoroutineId) {
     // sel4::debug_println!("Hello, coroutine_delay_wake!: {}", cid.0);
-    get_executor().delay_wake(cid);
+    get_executor().delay_wake(&cid);
 }
+
 
 #[inline]
 pub fn coroutine_wake(cid: &CoroutineId) {

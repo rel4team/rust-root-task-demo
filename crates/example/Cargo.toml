@@ -24,6 +24,11 @@ uintr = { path = "./uintr" }
 async_runtime = { path = "./async_runtime" }
 axi-ethernet = { git = "https://github.com/rel4team/axi-ethernet.git" }
 axi-dma = { git = "https://github.com/rel4team/axi-dma.git" }
+taic-driver = { path = "./taic-driver" }
+lazy_init = { git = "https://github.com/Starry-OS/lazy_init.git" }
+riscv = { git = "https://github.com/duskmoon314/riscv", branch = "extN", features = [
+    "inline-asm",
+] }
 
 [features]
 board_qemu = []

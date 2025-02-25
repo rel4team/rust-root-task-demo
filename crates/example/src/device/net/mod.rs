@@ -20,8 +20,8 @@ mod axi_net;
 static PLIC_NET_IRQ: u64 = 1;
 
 pub fn init(boot_info: &BootInfo) {
-    // virtio_net::init(boot_info);
-    axi_net::init(boot_info);
+    virtio_net::init(boot_info);
+    // axi_net::init(boot_info);
 }
 
 pub static INTERFACE: Lazy<Arc<Mutex<Interface>>> = Lazy::new(|| Arc::new(Mutex::new(

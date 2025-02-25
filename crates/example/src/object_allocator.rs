@@ -3,8 +3,10 @@ use alloc::vec::{self, Vec};
 use core::alloc::Layout;
 use core::arch::asm;
 use core::borrow::BorrowMut;
+use core::mem::size_of;
 use core::ops::Range;
 use spin::Mutex;
+use async_runtime::NewBuffer;
 use sel4::{CNodeCapData, InitCSpaceSlot, LocalCPtr, UntypedDesc};
 use sel4::cap_type::Untyped;
 use sel4::ObjectBlueprintArch;
@@ -68,6 +70,16 @@ impl ObjectAllocator {
         self.untyped_list = untyped_list;
         self.untyped_start = bootinfo.untyped().start;
         self.empty = bootinfo.empty();
+    }
+
+    pub unsafe fn alloc_new_buffer_without_free(&self) -> &'static mut NewBuffer {
+        let new_buffer_layout = Layout::from_size_align(size_of::<NewBuffer>(), 4096)
+            .expect("Failed to create layout for page aligned memory allocation");
+        let ptr = alloc_zeroed(new_buffer_layout);
+        if ptr.is_null() {
+            panic!("Failed to allocate page aligned memory");
+        }
+        &mut *(ptr as *mut NewBuffer)
     }
 
     pub fn get_the_first_untyped_slot(&mut self, blueprint: &sel4::ObjectBlueprint) -> LocalCPtr<Untyped> {

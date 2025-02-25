@@ -3,6 +3,7 @@ use alloc::sync::Arc;
 use async_runtime::{coroutine_run_until_complete, coroutine_spawn_with_prio, runtime_init};
 use sel4::cap_type::_4KPage;
 use spin::Mutex;
+use virtio_drivers::device;
 use core::alloc::{Layout};
 use core::mem::size_of;
 use alloc::alloc::alloc_zeroed;
@@ -29,6 +30,7 @@ const UNMAP_REPLY_NUM: usize = 1;
 const TEST_REPLY_NUM: usize = 2 * MAX_PAGE_NUM * EPOCH;
 
 pub fn async_syscall_test(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
+    crate::device::init(bootinfo);
     debug_println!("Enter Async Syscall Test");
     runtime_init();
     let new_buffer_layout = Layout::from_size_align(size_of::<NewBuffer>(), 4096).expect("Failed to create layout for page aligned memory allocation");

@@ -45,7 +45,7 @@ use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 use crate::sync_tcp_test::net_stack_test;
 // use crate::async_tcp_test::net_stack_test;
 use crate::poll_net_test::smoltcp_poll_test;
-const LOG_LEVEL: LevelFilter = LevelFilter::Info;
+const LOG_LEVEL: LevelFilter = LevelFilter::Debug;
 
 static LOGGER: Logger = LoggerBuilder::const_default()
     .level_filter(LOG_LEVEL)
@@ -89,11 +89,11 @@ fn main(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     recv_tcb.tcb_set_affinity(0);
     image_utils::UserImageUtils.init(bootinfo);
     GLOBAL_OBJ_ALLOCATOR.lock().init(bootinfo);
-    // async_ipc_test(bootinfo)?;
+    async_ipc_test(bootinfo)?;
+    // sync_ipc_test(bootinfo)?;
     // net_stack_test(bootinfo)?;
     // smoltcp_poll_test(bootinfo);
-    // sync_ipc_test(bootinfo)?;
-    async_syscall_test(bootinfo)?;
+    // async_syscall_test(bootinfo)?;
     debug_println!("TEST_PASS");
 
     sel4::BootInfo::init_thread_tcb().tcb_suspend()?;

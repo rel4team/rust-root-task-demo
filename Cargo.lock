@@ -16,6 +16,7 @@ name = "async_runtime"
 version = "0.1.0"
 dependencies = [
  "lazy_static",
+ "log",
  "sel4",
  "spin 0.9.8",
 ]
@@ -318,12 +319,15 @@ dependencies = [
  "axi-dma",
  "axi-ethernet",
  "buddy_system_allocator",
+ "lazy_init",
  "lazy_static",
+ "riscv 0.7.0",
  "sel4",
  "sel4-logging",
  "sel4-root-task",
  "smoltcp",
  "spin 0.9.8",
+ "taic-driver",
  "uintr",
  "virtio-drivers",
 ]
@@ -392,6 +396,11 @@ name = "itoa"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af150ab688ff2122fcef229be89cb50dd66af9e01a4ff320cc137eecc9bacc38"
+
+[[package]]
+name = "lazy_init"
+version = "0.1.0"
+source = "git+https://github.com/Starry-OS/lazy_init.git#d0e87c05b715063cc517de50ad5da15b13281def"
 
 [[package]]
 name = "lazy_static"
@@ -630,7 +639,7 @@ checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
 [[package]]
 name = "riscv"
 version = "0.7.0"
-source = "git+https://github.com/duskmoon314/riscv.git?branch=extN#4f92ef0efa6883017203343310a65d6d6eaee165"
+source = "git+https://github.com/duskmoon314/riscv?branch=extN#4f92ef0efa6883017203343310a65d6d6eaee165"
 dependencies = [
  "bare-metal 1.0.0",
  "bit_field",
@@ -1011,6 +1020,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "taic-driver"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "taic-pac",
+]
+
+[[package]]
+name = "taic-pac"
+version = "0.1.0"
+dependencies = [
+ "vcell",
 ]
 
 [[package]]

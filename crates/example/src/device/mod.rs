@@ -3,12 +3,14 @@ use sel4::BootInfo;
 
 
 mod net;
+pub mod taic;
 
 pub use net::{init_net_interrupt_handler, interrupt_handler, AXI_DMA, AXI_ETH};
 // pub use net::{transmit_test, recv_test};
 
 pub use net::{INTERFACE, NET_DEVICE};
 use sel4_root_task::debug_println;
+use taic::taic_test;
 
 // pub fn init(boot_info: &BootInfo) {
 //     // #[cfg(feature = "board_qemu")]
@@ -24,6 +26,7 @@ use sel4_root_task::debug_println;
 // }
 
 pub fn init(boot_info: &BootInfo) {
+    taic_test(boot_info);
     // #[cfg(feature = "board_qemu")]
     net::init(boot_info);
     INTERFACE.lock().update_ip_addrs(|ip_addrs| {

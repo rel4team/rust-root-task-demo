@@ -14,6 +14,7 @@ use sel4::sys::invocation_label;
 use sel4::ObjectBlueprint;
 use sel4::get_clock;
 use sel4::wake_syscall_handler;
+use taic_driver::Taic;
 use uintr::{register_sender, uintr_frame, uipi_send};
 
 use crate::image_utils::UserImageUtils;
@@ -60,6 +61,14 @@ pub fn register_sender_buffer(ntfn: Notification, new_buffer: &'static mut NewBu
     return Err(());
 }
 
+pub fn register_sender_buffer2(sender_id: usize, new_buffer: &'static mut NewBuffer) {
+    unsafe {
+        SENDER_MAP[sender_id] = new_buffer as *const NewBuffer as usize;
+    }
+}
+
+
+
 // pub fn register_async_syscall_buffer(new_buffer: &'static mut NewBuffer) {
 pub fn register_async_syscall_buffer(new_buffer_ptr: usize) {
     // unsafe { SENDER_MAP.insert(63 as SenderID, new_buffer); }
@@ -72,7 +81,7 @@ pub fn wake_recv_coroutine(vec: usize) -> Result<(), ()> {
     // sel4::debug_println!("Hello, wake_recv_coroutine!: {}", vec);
     unsafe {
         if let Some(cid) = WAKE_MAP.get(&vec) {
-            coroutine_delay_wake(cid);
+            coroutine_delay_wake(*cid);
             return Ok(());
         }
         return Err(())
@@ -80,6 +89,8 @@ pub fn wake_recv_coroutine(vec: usize) -> Result<(), ()> {
 }
 
 pub struct AsyncArgs {
+    pub server_process_id: Option<usize>,
+    pub client_process_id: Option<usize>,
     pub req_ntfn: Option<CPtrBits>,
     pub reply_ntfn: Option<CPtrBits>,
     pub server_sender_id: Option<SenderID>,
@@ -91,9 +102,12 @@ pub struct AsyncArgs {
 
 }
 
+
 impl AsyncArgs {
     pub fn new() -> Self {
         Self {
+            client_process_id: None,
+            server_process_id: None,
             req_ntfn: None,
             reply_ntfn: None,
             server_sender_id: None,
@@ -192,7 +206,7 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
     loop {
         if let Some(item) = new_buffer.res_items.get_first_item() {
-            // debug_println!("recv req: {:?}", item);
+            // debug_println!("recv reply: {:?}", item);
             // coroutine_wake_with_value(&item.cid, item.msg_info as u64);
             unsafe {
                 IMMEDIATE_VALUE[item.cid.0 as usize] = Some(item);
@@ -256,7 +270,6 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
     }
 }
 
-
 pub fn uintr_handler(_frame: *mut uintr_frame, irqs: usize) -> usize {
     unsafe {
         UINT_TRIGGER += 1;
@@ -308,19 +321,16 @@ fn convert_option_mut_ref<T>(ptr: usize) -> Option<&'static mut T> {
 
 pub static mut SUBMIT_SYSCALL_CNT: usize = 0;
 
-pub async fn seL4_Call_with_item(sender_id: &SenderID, item: &IPCItem) -> Result<IPCItem, ()> {
-    if let Some(new_buffer) = unsafe { convert_option_mut_ref::<NewBuffer>(SENDER_MAP[*sender_id as usize]) } {
+pub async fn seL4_Call_with_item(recv: &SenderID, item: &IPCItem) -> Result<IPCItem, ()> {
+    if let Some(new_buffer) = unsafe { convert_option_mut_ref::<NewBuffer>(SENDER_MAP[*recv as usize]) } {
         // todo: bugs need to fix
         let msg_info = item.msg_info;
         new_buffer.req_items.write_free_item(&item).unwrap();
         // debug_println!("seL4_Call_with_item: write item: {:?}", msg_info);
         if new_buffer.recv_req_status.load(SeqCst) == false {
             new_buffer.recv_req_status.store(true, SeqCst);
-            if *sender_id != 63 {
-                // debug_println!("send uipi");
-                unsafe {
-                    uipi_send(*sender_id as u64);
-                }
+            if *recv != 63 {
+                crate::device::taic::interface::send_signal(*recv as usize);
             } else {
                 // todo: submit syscall
                 // debug_println!("seL4_Call_with_item: Submit Syscall!");

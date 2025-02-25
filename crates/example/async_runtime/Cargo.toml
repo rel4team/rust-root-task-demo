@@ -9,3 +9,4 @@ edition = "2021"
 sel4 = { path = "../../../rust-sel4/crates/sel4" }
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 spin = { version = "0.9", features = ["use_ticket_mutex"] }
+log = "0.4.20"

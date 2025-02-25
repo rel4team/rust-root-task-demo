@@ -87,16 +87,8 @@ pub unsafe fn __handler_entry(frame: *mut uintr_frame, handler: u64) {
 }
 
 pub fn register_receiver(tcb: TCB, ntfn: Notification, handler: usize) -> Result<(), Error> {
-    extern "C" {
-        fn uintrvec();
-    }
-    unsafe {
-        core::arch::asm!(concat!("csrw ", "0x005", ", {0}"), in(reg) uintrvec as usize);
-        core::arch::asm!(concat!("csrw ", "0x040", ", {0}"), in(reg) handler);
-        core::arch::asm!(concat!("csrs ", "0x000", ", {0}"), in(reg) USTATUS_UIE);
-        core::arch::asm!(concat!("csrs ", "0x004", ", {0}"), in(reg) MIE_USIE);
-    }
-    return ntfn.register_receiver(tcb.cptr());
+    ntfn.register_receiver(tcb.cptr())
+
 }
 
 pub fn register_sender(ntfn: Notification) -> Result<u64, Error> {
