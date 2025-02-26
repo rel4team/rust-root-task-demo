@@ -15,7 +15,7 @@ use smoltcp::iface::{SocketHandle, SocketSet};
 use smoltcp::socket::tcp::{Socket, SocketBuffer};
 use smoltcp::time::Instant;
 use spin::{Lazy, Mutex};
-use async_runtime::{coroutine_get_current, coroutine_spawn_with_prio, coroutine_wake, get_ready_num, runtime_init, CoroutineId, IPCItem};
+use async_runtime::{coroutine_get_current, coroutine_spawn_with_prio, coroutine_wake, runtime_init, CoroutineId, IPCItem};
 use sel4::cap_type::{Endpoint, IRQHandler, Notification};
 use sel4::LocalCPtr;
 

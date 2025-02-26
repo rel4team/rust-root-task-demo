@@ -9,7 +9,9 @@ mod coroutine;
 mod new_buffer;
 mod message_info;
 pub mod utils;
+mod taic_queue;
 
+use alloc::sync::Arc;
 use alloc::alloc::alloc_zeroed;
 use alloc::boxed::Box;
 use core::alloc::Layout;
@@ -21,6 +23,7 @@ pub use new_buffer::*;
 pub use coroutine::*;
 use log::debug;
 pub use message_info::*;
+use taic_driver::LocalQueue;
 
 #[thread_local]
 static mut EXECUTOR: usize = 0;
@@ -45,6 +48,11 @@ pub fn runtime_init() {
         }
     }
     get_executor().init();
+}
+
+#[inline]
+pub fn local_queue_init(lq: Arc<LocalQueue>) {
+    get_executor().lq_init(lq);
 }
 
 #[inline]
@@ -85,11 +93,6 @@ pub fn get_executor_ptr() -> usize {
     unsafe {
         EXECUTOR
     }
-}
-
-#[inline]
-pub fn get_ready_num() -> usize {
-    get_executor().get_ready_num()
 }
 
 #[inline]

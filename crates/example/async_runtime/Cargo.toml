@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+taic-driver = { path = "../taic-driver" }
 sel4 = { path = "../../../rust-sel4/crates/sel4" }
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 spin = { version = "0.9", features = ["use_ticket_mutex"] }

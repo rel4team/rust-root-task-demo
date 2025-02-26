@@ -16,7 +16,7 @@ use sel4::get_clock;
 use sel4::wake_syscall_handler;
 use taic_driver::Taic;
 use uintr::{register_sender, uintr_frame, uipi_send};
-
+use crate::device::taic::interface::register_receiver;
 use crate::image_utils::UserImageUtils;
 
 pub const MAX_UINT_VEC: usize = 64;
@@ -219,6 +219,8 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
                 }
             }
         } else {
+            register_receiver(async_args.server_process_id.unwrap(),
+                              coroutine_get_current().0 as usize);
             new_buffer.recv_reply_status.store(false, SeqCst);
             // coroutine_wake(&cid);
             yield_now().await;

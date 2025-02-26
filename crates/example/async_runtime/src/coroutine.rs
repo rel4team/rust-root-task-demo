@@ -20,7 +20,7 @@ impl CoroutineId {
     pub fn generate() -> CoroutineId {
         // 任务编号计数器，任务编号自增
         let cid = unsafe { CID_ALLOCATOR.allocate() };
-        CoroutineId(cid.unwrap() as u32)
+        CoroutineId(cid.unwrap() as u32 + 1)
     }
     /// 根据 usize 生成协程 Id
     pub const fn from_val(v: u32) -> Self {
@@ -32,7 +32,7 @@ impl CoroutineId {
     }
 
     pub fn release(&self) {
-        unsafe { CID_ALLOCATOR.release(self.0 as usize) }
+        unsafe { CID_ALLOCATOR.release(self.0 as usize - 1) }
     }
 }
 

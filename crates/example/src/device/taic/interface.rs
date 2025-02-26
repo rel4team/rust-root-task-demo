@@ -4,44 +4,49 @@ use crate::device::taic::TAIC;
 use alloc::collections::BTreeMap;
 use spin::{Lazy, Mutex};
 use alloc::sync::Arc;
-use async_runtime::CoroutineId;
+use async_runtime::{local_queue_init, CoroutineId};
 use sel4_root_task::debug_println;
 pub use super::utrap_handler::register_usoft_handler;
 pub static mut LQ_MAP: BTreeMap<usize, Arc<LocalQueue>> = BTreeMap::new();
 
 #[thread_local]
 pub static mut process_id: usize = 0;
-pub fn register_receiver(tcb: TCB, ntfn: Notification, hart_id: usize) -> Result<usize, Error> {
+pub fn alloc_receiver(tcb: TCB, ntfn: Notification, hart_id: usize) -> Result<usize, Error> {
     super::init_utrap_handler();
     ntfn.register_receiver(tcb.cptr())?;
     let mut recv_idx = 0;
     with_ipc_buffer(|buffer| {
         unsafe {
             recv_idx = buffer.inner().uintr_flag as usize;
-            debug_println!("Registering receiver: {}", recv_idx);
             process_id = recv_idx;
             let lq = Arc::new(TAIC.alloc_lq(1, recv_idx).unwrap());
             lq.whart(hart_id);
-            LQ_MAP.insert(recv_idx, lq);
-            debug_println!("Registering receiver end");
+            LQ_MAP.insert(recv_idx, lq.clone());
+            local_queue_init(lq);
         }
     });
     Ok(recv_idx)
+}
+
+
+pub fn register_receiver(sender_idx: usize, handler: usize) {
+    unsafe {
+        let lq = LQ_MAP.get(&process_id).unwrap();
+        lq.register_receiver(1, sender_idx, handler);
+    }
 }
 
 #[inline]
 pub fn register_sender(recv_idx: usize) {
     // debug_println!("Registering sender: {}, {}", recv_idx, sender_idx);
     unsafe {
-        let recv_lq = LQ_MAP.get(&recv_idx).unwrap();
-        recv_lq.register_receiver(1, process_id, 0x109);
-        let sender_lq = LQ_MAP.get(&process_id).unwrap();
-        sender_lq.register_sender(1, recv_idx);
+        let lq = LQ_MAP.get(&process_id).unwrap();
+        lq.register_sender(1, recv_idx);
     }
 }
 
 #[inline]
-pub fn re_register(send_idx: usize) {
+pub fn re_register(send_idx: usize, handler: usize) {
     unsafe {
         let recv_lq = LQ_MAP.get(&process_id).unwrap();
         recv_lq.register_receiver(1, send_idx, 0x109);

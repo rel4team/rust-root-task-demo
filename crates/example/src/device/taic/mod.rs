@@ -29,13 +29,13 @@ fn enq_deq_test() {
     let lq0 = TAIC.alloc_lq(1, 2).unwrap();
     let mut enq_cycles = Vec::new();
     let mut deq_cycles = Vec::new();
-    for i in 0..NUM {
+    for i in 1..NUM {
         let enq_start = get_clock();
         lq0.task_enqueue(i);
         let enq_end = get_clock();
         enq_cycles.push(enq_end - enq_start);
     }
-    for _i in 0..NUM {
+    for _i in 1..NUM {
         let deq_start = get_clock();
         let c = lq0.task_dequeue();
         let deq_end = get_clock();
@@ -69,8 +69,8 @@ fn soft_intr_test() {
 
 pub fn taic_test(boot_info: &BootInfo) {
     mmap::mmap_device_addr(boot_info, TAIC_BASE, TAIC_LEN, TAIC_OFFSET);
-    // enq_deq_test();
-    soft_intr_test();
+    enq_deq_test();
+    // soft_intr_test();
     loop {
         
     }

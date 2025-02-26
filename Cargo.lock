@@ -19,6 +19,7 @@ dependencies = [
  "log",
  "sel4",
  "spin 0.9.8",
+ "taic-driver",
 ]
 
 [[package]]

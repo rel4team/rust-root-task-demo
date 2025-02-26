@@ -15,14 +15,14 @@ use sel4_root_task::debug_println;
 use sel4::get_clock;
 use sel4::r#yield;
 // use uintr::{register_receiver, register_sender, uipi_send};
-use crate::device::taic::interface::{re_register, register_receiver, register_sender, register_usoft_handler};
+use crate::device::taic::interface::{re_register, alloc_receiver, register_sender, register_usoft_handler, register_receiver};
 use crate::async_lib::{recv_reply_coroutine, register_recv_cid, register_sender_buffer, register_sender_buffer2, seL4_Call, seL4_Call_with_item, uintr_handler, wake_recv_coroutine, yield_now, AsyncArgs, SenderID, UINT_TRIGGER};
 use crate::matrix::matrix_test;
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 
 static SEND_NUM: usize = 4096;
 static mut MUTE_SEND_NUM: usize = SEND_NUM;
-static COROUTINE_NUM: usize = 1;
+static COROUTINE_NUM: usize = 16;
 const MATRIX_SIZE: usize = 4;
 
 pub fn mutex_print(s: String) {
@@ -56,7 +56,7 @@ pub fn async_helper_thread(arg: usize, ipc_buffer_addr: usize) {
     let reply_ntfn = GLOBAL_OBJ_ALLOCATOR.lock().alloc_ntfn().unwrap();
 
     tcb.tcb_bind_notification(reply_ntfn).unwrap();
-    let client_process_id = register_receiver(tcb, reply_ntfn, 0).unwrap();
+    let client_process_id = alloc_receiver(tcb, reply_ntfn, 0).unwrap();
     let server_process_id = async_args.server_process_id.unwrap();
 
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
@@ -64,12 +64,13 @@ pub fn async_helper_thread(arg: usize, ipc_buffer_addr: usize) {
         coroutine_spawn_with_prio(Box::pin(recv_reply_coroutine(arg, SEND_NUM)), 0)
     );
 
-    register_usoft_handler(Box::new(move || {
-        coroutine_delay_wake(*cid);
-        // re_register(server_process_id);
-    }));
+    // register_usoft_handler(Box::new(move || {
+    //     coroutine_delay_wake(*cid);
+    //     // re_register(server_process_id);
+    // }));
 
     register_sender_buffer2(server_process_id, new_buffer);
+    register_receiver(server_process_id, cid.0 as usize);
     register_sender(server_process_id);
 
     let _lock = async_args.lock.lock();
@@ -151,6 +152,7 @@ async fn recv_req_coroutine(arg: usize) {
             }
             
         } else {
+            register_receiver(client_process_id, coroutine_get_current().0 as usize);
             new_buffer.recv_req_status.store(false, SeqCst);
             yield_now().await;
         }
@@ -167,7 +169,7 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
 
     let recv_tcb = sel4::BootInfo::init_thread_tcb();
     recv_tcb.tcb_bind_notification(badged_notification)?;
-    let server_process_id = register_receiver(recv_tcb, badged_notification, 0)?;
+    let server_process_id = alloc_receiver(recv_tcb, badged_notification, 0)?;
 
     let _lock = async_args.lock.lock();
     async_args.server_process_id = Some(server_process_id);
@@ -192,15 +194,17 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
         drop(_lock);
         r#yield();
     }
-
+    let cid = Box::new(coroutine_spawn_with_prio(Box::pin(recv_req_coroutine(async_args.get_ptr())), 1));
     let client_process_id = async_args.client_process_id.unwrap();
+    debug_println!("[server] cid: {}", cid.0);
+    register_receiver(client_process_id, cid.0 as usize);
     register_sender(client_process_id);
 
-    let cid = Box::new(coroutine_spawn_with_prio(Box::pin(recv_req_coroutine(async_args.get_ptr())), 1));
-    register_usoft_handler(Box::new(move || {
-        coroutine_delay_wake(*cid);
-        // re_register(client_process_id);
-    }));
+
+    // register_usoft_handler(Box::new(move || {
+    //     coroutine_delay_wake(*cid);
+    //     // re_register(client_process_id);
+    // }));
 
     let _lock = async_args.lock.lock();
     async_args.server_ready = true;

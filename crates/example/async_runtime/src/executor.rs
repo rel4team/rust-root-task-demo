@@ -6,9 +6,9 @@ use core::pin::Pin;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering::Relaxed;
 use core::task::Poll;
+use taic_driver::LocalQueue;
 use crate::coroutine::{Coroutine, CoroutineId};
 use crate::utils::{BitMap, BitMap64, RingBuffer};
-
 
 const ARRAY_REPEAT_VALUE: Option<Arc<Coroutine>> = None;
 
@@ -16,7 +16,8 @@ pub const MAX_TASK_NUM: usize = 2048;
 pub const MAX_PRIO_NUM: usize = 8;
 #[repr(align(4096))]
 pub struct Executor {
-    ready_queue: [RingBuffer<CoroutineId, MAX_TASK_NUM>; MAX_PRIO_NUM],
+    // ready_queue: [RingBuffer<CoroutineId, MAX_TASK_NUM>; MAX_PRIO_NUM],
+    ready_queue: Option<Arc<LocalQueue>>,
     prio_bitmap: BitMap64,
     coroutine_num: usize,
     pub current: Option<CoroutineId>,
@@ -33,26 +34,27 @@ impl Executor {
             coroutine_num: 0,
             current: None,
             tasks: [ARRAY_REPEAT_VALUE; MAX_TASK_NUM],
-            ready_queue: [RingBuffer::new(); MAX_PRIO_NUM],
+            ready_queue: None,
             prio_bitmap: BitMap64::new(),
             tasks_bak: Vec::new(),
             delay_wake_cids: AtomicU64::new(0),
         }
     }
 
-    pub fn get_ready_num(&self) -> usize {
-        self.ready_queue[2].size()
-    }
-
     pub fn init(&mut self) {
         *self = Self::new();
+    }
+
+    pub fn lq_init(&mut self, lq: Arc<LocalQueue>) {
+        self.ready_queue = Some(lq.clone());
     }
 
     pub fn spawn(&mut self, future: Pin<Box<dyn Future<Output=()> + 'static + Send + Sync>>, prio: usize) -> CoroutineId {
         let task = Coroutine::new(future, prio);
         let cid = task.cid;
-        self.prio_bitmap.set(prio);
-        self.ready_queue[prio].push(&cid).unwrap();
+        // self.prio_bitmap.set(prio);
+        // self.ready_queue[prio].push(&cid).unwrap();
+        self.ready_queue.as_ref().unwrap().task_enqueue(cid.0 as usize);
         self.tasks[cid.0 as usize] = Some(task.clone());
         self.coroutine_num += 1;
         self.tasks_bak.push(task.clone());
@@ -87,20 +89,11 @@ impl Executor {
     }
 
     pub fn fetch(&mut self) -> Option<Arc<Coroutine>> {
-        // sel4::debug_println!("fetch, start: {:#x}, start: {}, end: {}", (&self.ready_queue[0]) as *const RingBuffer<CoroutineId, MAX_TASK_NUM_PER_PRIO> as usize,
-        // self.ready_queue[0].start, self.ready_queue[0].end);
-        self.actual_wake();
-        let prio = self.prio_bitmap.find_first_one();
-        
-        if prio == 64 {
-            return None;
-        }
-        if let Some(cid) = self.ready_queue[prio].pop() {
+        if let Some(taskid) = self.ready_queue.as_ref().unwrap().task_dequeue() {
+            // sel4::debug_println!("fetch cid: {}", taskid);
+            let cid = CoroutineId::from_val(taskid as u32);
             if let Some(task) = self.tasks[cid.0 as usize].clone() {
                 self.current = Some(cid);
-                if self.ready_queue[prio].empty() {
-                    self.prio_bitmap.clear(prio);
-                }
                 return Some(task);
             }
         }
@@ -112,14 +105,7 @@ impl Executor {
         // assert!(self.tasks.contains_key(cid));
         let op_task = self.tasks[cid.0 as usize].clone();
         if op_task.is_some() {
-            let prio = op_task.unwrap().prio;
-            self.prio_bitmap.set(prio);
-            // sel4::debug_println!("wake cid: {:?}, start: {:#x}, prio: {}", cid,(&self.ready_queue[prio]) as *const RingBuffer<CoroutineId, MAX_TASK_NUM_PER_PRIO> as usize, prio);
-            self.ready_queue[prio].push(&cid).unwrap();
-            // sel4::debug_println!("wake cid: {}, prio: {}, max_prio: {}", cid.0, prio, self.prio_bitmap.find_first_one());
-            // for i in 0..MAX_PRIO_NUM {
-            //     sel4::debug_println!("[fetch] prio: {}, start: {}, end: {}", i, self.ready_queue[i].start, self.ready_queue[i].end);
-            // }
+            self.ready_queue.as_ref().unwrap().task_enqueue(cid.0 as usize);
         }
         
     }
@@ -148,7 +134,7 @@ impl Executor {
     pub fn run_until_blocked(&mut self) {
         while let Some(task) = self.fetch() {
             let cid = task.cid;
-            // sel4::debug_println!("run_until_blocked loop");
+            // sel4::debug_println!("run_until_blocked loop: {}", cid.0);
             match task.execute() {
                 Poll::Ready(_) => {
                     self.remove_task(cid);
