@@ -129,6 +129,7 @@ async fn client_call_test(sender_id: SenderID, msg: u64) {
 async fn recv_req_coroutine(arg: usize) {
     debug_println!("hello recv_req_coroutine");
     static mut REQ_NUM: usize = 0;
+    let current_cid = coroutine_get_current().0 as usize;
     let async_args= AsyncArgs::from_ptr(arg);
     let client_process_id = async_args.client_process_id.unwrap() as usize;
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
@@ -136,7 +137,7 @@ async fn recv_req_coroutine(arg: usize) {
         if let Some(mut item) = new_buffer.req_items.get_first_item() {
             // item.msg_info += 1;
             // debug_println!("hello get item");
-            let _res = matrix_test::<MATRIX_SIZE>();
+            // let _res = matrix_test::<MATRIX_SIZE>();
             new_buffer.res_items.write_free_item(&item).unwrap();
             if new_buffer.recv_reply_status.load(SeqCst) == false {
                 new_buffer.recv_reply_status.store(true, SeqCst);
@@ -152,7 +153,7 @@ async fn recv_req_coroutine(arg: usize) {
             }
             
         } else {
-            register_receiver(client_process_id, coroutine_get_current().0 as usize);
+            register_receiver(client_process_id, current_cid);
             new_buffer.recv_req_status.store(false, SeqCst);
             yield_now().await;
         }
@@ -173,7 +174,7 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!>  {
 
     let _lock = async_args.lock.lock();
     async_args.server_process_id = Some(server_process_id);
-    // debug_println!("NEW BUFFER ptr: {:#x}", unsafe { NEW_BUFFER.as_mut_ptr() as usize});
+
     let ipc_new_buffer = unsafe {
         obj_allocator.lock().alloc_new_buffer_without_free()
     };

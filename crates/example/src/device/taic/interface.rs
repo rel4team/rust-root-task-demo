@@ -12,7 +12,7 @@ pub static mut LQ_MAP: BTreeMap<usize, Arc<LocalQueue>> = BTreeMap::new();
 #[thread_local]
 pub static mut process_id: usize = 0;
 pub fn alloc_receiver(tcb: TCB, ntfn: Notification, hart_id: usize) -> Result<usize, Error> {
-    super::init_utrap_handler();
+    // super::init_utrap_handler();
     ntfn.register_receiver(tcb.cptr())?;
     let mut recv_idx = 0;
     with_ipc_buffer(|buffer| {
@@ -46,18 +46,10 @@ pub fn register_sender(recv_idx: usize) {
 }
 
 #[inline]
-pub fn re_register(send_idx: usize, handler: usize) {
-    unsafe {
-        let recv_lq = LQ_MAP.get(&process_id).unwrap();
-        recv_lq.register_receiver(1, send_idx, 0x109);
-    }
-}
-
-#[inline]
 pub fn send_signal(recv_process_id: usize) {
     unsafe {
         // debug_println!("send_signal: {} --> {}", process_id, recv_process_id);
         let lq = LQ_MAP.get(&process_id).unwrap();
-        lq.send_intr(1, recv_process_id)
+        lq.send_intr(1, recv_process_id);
     }
 }

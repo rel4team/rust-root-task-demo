@@ -204,6 +204,8 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
     static mut REPLY_COUNT: usize = 0;
     let async_args = AsyncArgs::from_ptr(arg);
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
+    let server_process_id = async_args.server_process_id.unwrap();
+    let current_cid = coroutine_get_current().0 as usize;
     loop {
         if let Some(item) = new_buffer.res_items.get_first_item() {
             // debug_println!("recv reply: {:?}", item);
@@ -219,8 +221,7 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
                 }
             }
         } else {
-            register_receiver(async_args.server_process_id.unwrap(),
-                              coroutine_get_current().0 as usize);
+            register_receiver(server_process_id, current_cid);
             new_buffer.recv_reply_status.store(false, SeqCst);
             // coroutine_wake(&cid);
             yield_now().await;
