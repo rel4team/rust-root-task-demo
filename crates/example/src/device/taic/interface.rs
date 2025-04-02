@@ -10,7 +10,7 @@ use spin::{Lazy, Mutex};
 use taic_driver::LocalQueue;
 
 //防止多个线程同时使用TAIC
-pub static LOCK: Mutex<()> = Mutex::new(());
+// pub static LOCK: Mutex<()> = Mutex::new(());
 // pid,LQ
 // pub static mut LQ_MAP: BTreeMap<usize, Arc<LocalQueue>> = BTreeMap::new();
 
@@ -63,7 +63,7 @@ pub fn register_receiver(
     preempt: bool,
     reusable: bool,
 ) {
-    let _lock = LOCK.lock();
+    // let _lock = LOCK.lock();
     unsafe {
         // let lq = LQ_MAP.get(&process_id).unwrap();
         let _handler = handler << 2 | ((reusable as usize) << 1)| (preempt as usize);
@@ -91,7 +91,7 @@ pub fn register_sender(recv_idx: usize, irq: usize) {
 
 #[inline]
 pub fn send_signal(recv_process_id: usize, irq: usize) {
-    let _lock = LOCK.lock();
+    // let _lock = LOCK.lock();
     unsafe {
         // debug_println!("send_signal: {} --> {}", process_id, recv_process_id);
         // let lq = LQ_MAP.get(&process_id).unwrap();
