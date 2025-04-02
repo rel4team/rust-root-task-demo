@@ -20,9 +20,7 @@ use sel4_root_task::debug_println;
 use spin::Mutex;
 // use uintr::{register_receiver, register_sender, uipi_send};
 use crate::async_lib::{
-    recv_reply_coroutine, register_recv_cid, register_sender_buffer, register_sender_buffer2,
-    seL4_Call, sel4_call_with_item, uintr_handler, wake_recv_coroutine, yield_now, AsyncArgs,
-    SenderID, UINT_TRIGGER,
+    recv_reply_coroutine, register_recv_cid, register_sender_buffer, register_sender_buffer2, seL4_Call, sel4_call_with_item, uintr_handler, wake_recv_coroutine, yield_now, AsyncArgs, SenderID, TEST_CLOCK, UINT_TRIGGER
 };
 use crate::device::taic::interface::{
     alloc_receiver, alloc_vec, free_vec, register_receiver, register_sender,
@@ -135,10 +133,8 @@ async fn client_call_test(sender_id: SenderID, msg: u64) {
         } else {
             0
         };
-        // debug_println!("[client] get vec {:?}",vec);
-        // sync_memory_test();
-        // sync_test_address(new_buffer_ptr);
         for i in 0..SEND_NUM / COROUTINE_NUM{
+            TEST_CLOCK.start();
         // while MUTE_SEND_NUM > 0 {
             let start = get_clock() as usize;
             register_receiver(sender_id as usize, vec, cid.0 as usize, false, false);
@@ -147,9 +143,8 @@ async fn client_call_test(sender_id: SenderID, msg: u64) {
             let item = IPCItem::from(vec as u32, cid, msg as u32);
             // debug_println!("get here???7");
             if let Ok(_reply) = sel4_call_with_item(&sender_id, 0, &item).await {
+                TEST_CLOCK.stop();
                 // debug_println!("[client] register receiver vec:{:?} handler:{:?}",vec, cid.0);
-                let end: usize = get_clock() as usize;
-                IPC_SEND_TIME += start - end;
                 SUCESS_NUM = SUCESS_NUM + 1;
                 if SUCESS_NUM % 256 == 0 {
                     debug_println!("[client{:?}] success num:{:?}", cid.0, SUCESS_NUM);
