@@ -2,6 +2,7 @@ use taic_pac::taic::Lq_;
 
 use crate::Taic;
 
+#[derive(Debug, Clone)]
 pub struct LocalQueue {
     base: usize,
     taic: Taic,
@@ -34,7 +35,7 @@ impl LocalQueue {
         }
     }
 
-    pub fn register_sender(&self, recv_os: usize, recv_proc: usize) {
+    pub fn register_sender(&self, recv_os: usize, recv_proc: usize, irq: usize) {
         &self
             .regs()
             .register_sender()
@@ -42,10 +43,10 @@ impl LocalQueue {
         &self
             .regs()
             .register_sender()
-            .write(|w| unsafe { w.bits(recv_proc as _) });
+            .write(|w| unsafe { w.bits(((recv_proc << 32) | irq) as _) });
     }
 
-    pub fn cancel_sender(&self, recv_os: usize, recv_proc: usize) {
+    pub fn cancel_sender(&self, recv_os: usize, recv_proc: usize, irq: usize) {
         &self
             .regs()
             .cancel_sender()
@@ -53,25 +54,29 @@ impl LocalQueue {
         &self
             .regs()
             .cancel_sender()
-            .write(|w| unsafe { w.bits(recv_proc as _) });
+            .write(|w| unsafe { w.bits(((recv_proc << 32) | irq) as _) });
     }
 
-    pub fn register_receiver(&self, send_os: usize, send_proc: usize, handler: usize) {
+    pub fn register_receiver(&self, send_os: usize, send_proc: usize, irq: usize, handler: usize) {
+        // log::debug!("{:?}Enter0",self.queue_idx());
         &self
             .regs()
             .register_receiver()
             .write(|w| unsafe { w.bits(send_os as _) });
+        // log::debug!("{:?}Enter1",self.queue_idx());
         &self
             .regs()
             .register_receiver()
-            .write(|w| unsafe { w.bits(send_proc as _) });
+            .write(|w| unsafe { w.bits(((send_proc << 32) | irq) as _) });
+        // log::debug!("{:?}Enter2",self.queue_idx());
         &self
             .regs()
             .register_receiver()
             .write(|w| unsafe { w.bits(handler as _) });
+        // log::debug!("{:?}Enter3",self.queue_idx());
     }
 
-    pub fn send_intr(&self, recv_os: usize, recv_proc: usize) {
+    pub fn send_intr(&self, recv_os: usize, recv_proc: usize, irq: usize) {
         &self
             .regs()
             .send_intr()
@@ -79,7 +84,7 @@ impl LocalQueue {
         &self
             .regs()
             .send_intr()
-            .write(|w| unsafe { w.bits(recv_proc as _) });
+            .write(|w| unsafe { w.bits(((recv_proc << 32) | irq) as _) });
     }
 
     pub fn whart(&self, hartid: usize) {
@@ -93,7 +98,8 @@ impl LocalQueue {
         &self
             .regs()
             .register_extint(irq)
-            .register_extint().write(|w| unsafe { w.bits(handler as _) });
+            .register_extint()
+            .write(|w| unsafe { w.bits(handler as _) });
     }
 
     fn queue_idx(&self) -> usize {
@@ -101,6 +107,12 @@ impl LocalQueue {
         let gq_idx = queue_idx / self.taic.lq_num;
         let lq_idx = queue_idx % self.taic.lq_num;
         (gq_idx << 32) | lq_idx
+    }
+
+    pub fn manually_drop(&self) {
+        let flq = self.taic.regs().flq();
+        log::info!("free local queue {:#x}", self.queue_idx());
+        flq.write(|w| unsafe { w.bits(self.queue_idx() as _) });
     }
 }
 

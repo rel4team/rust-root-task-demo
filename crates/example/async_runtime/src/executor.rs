@@ -5,7 +5,7 @@ use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering::Relaxed;
-use core::task::Poll;
+use core::task::{self, Poll};
 use taic_driver::LocalQueue;
 use crate::coroutine::{Coroutine, CoroutineId};
 use crate::utils::{BitMap, BitMap64, RingBuffer};
@@ -54,7 +54,7 @@ impl Executor {
         let cid = task.cid;
         // self.prio_bitmap.set(prio);
         // self.ready_queue[prio].push(&cid).unwrap();
-        self.ready_queue.as_ref().unwrap().task_enqueue(cid.0 as usize);
+        self.ready_queue.as_ref().unwrap().task_enqueue((cid.0 as usize) << 2);//将任务写到队列里
         self.tasks[cid.0 as usize] = Some(task.clone());
         self.coroutine_num += 1;
         self.tasks_bak.push(task.clone());
@@ -89,7 +89,9 @@ impl Executor {
     }
 
     pub fn fetch(&mut self) -> Option<Arc<Coroutine>> {
-        if let Some(taskid) = self.ready_queue.as_ref().unwrap().task_dequeue() {
+        //任务出队
+        if let Some(handler) = self.ready_queue.as_ref().unwrap().task_dequeue() {
+            let taskid = handler >> 2;
             // sel4::debug_println!("fetch cid: {}", taskid);
             let cid = CoroutineId::from_val(taskid as u32);
             if let Some(task) = self.tasks[cid.0 as usize].clone() {
@@ -105,7 +107,7 @@ impl Executor {
         // assert!(self.tasks.contains_key(cid));
         let op_task = self.tasks[cid.0 as usize].clone();
         if op_task.is_some() {
-            self.ready_queue.as_ref().unwrap().task_enqueue(cid.0 as usize);
+            self.ready_queue.as_ref().unwrap().task_enqueue((cid.0 as usize)<<2);
         }
         
     }

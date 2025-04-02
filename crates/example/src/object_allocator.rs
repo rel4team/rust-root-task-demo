@@ -20,6 +20,7 @@ pub static GLOBAL_OBJ_ALLOCATOR: Mutex<ObjectAllocator> = Mutex::new(ObjectAlloc
 
 
 #[derive(Clone)]
+// untypedDesc 未类型化的内存区域
 struct UsedUntypedDesc {
     pub desc: UntypedDesc,
     pub used: bool,
@@ -27,7 +28,7 @@ struct UsedUntypedDesc {
 
 pub struct ObjectAllocator {
     untyped_list: Vec<UsedUntypedDesc>,
-    untyped_start: InitCSpaceSlot,
+    untyped_start: InitCSpaceSlot,//
     empty: Range<InitCSpaceSlot>,
 }
 

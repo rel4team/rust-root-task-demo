@@ -260,4 +260,23 @@ impl<T, const SIZE: usize> SafeRingBuffer<T, SIZE> where T: Default + Copy + Clo
             Err(())
         }
     }
+
+    #[inline]
+    pub fn write_at(&mut self, index: usize, value: T) -> Result<(), ()> {
+        if index < SIZE {
+            self.data[index] = value;
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+    
+    #[inline]
+    pub fn read_at(&self, index: usize) -> Option<T> {
+        if index < SIZE {
+            Some(self.data[index])
+        } else {
+            None
+        }
+    }
 }

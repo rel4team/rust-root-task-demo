@@ -126,9 +126,11 @@ pub fn async_syscall_test(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     //注册发送者 ——>谁来发（谁接收回复）
     
     // register_sender(process_id.unwrap());
-    register_receiver(2, cid.0 as usize);
+    // register_receiver(2, cid.0 as usize,);
     //注册发送者 ——>谁来发（谁接收回复）
-    register_sender(2);
+    // register_sender(2);
+    let irq = 0;
+    register_sender(0,irq);
 
     run_performance_test_all();
 
@@ -363,7 +365,7 @@ async fn test_async_riscv_page_unmap(obj_allocator: &Mutex<ObjectAllocator>) {
 
 const START_ADDR: usize = 0x200_0000;
 const PAGE_SIZE: usize = 0x1000;
-const MAX_PAGE_NUM_BITS: usize = 9;
+const MAX_PAGE_NUM_BITS: usize = 1;
 const MAX_PAGE_NUM: usize = 1 << MAX_PAGE_NUM_BITS;
 const EPOCH: usize = 10;
 

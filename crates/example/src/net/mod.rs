@@ -145,7 +145,8 @@ async fn net_poll(handler: LocalCPtr<IRQHandler>) {
         // for (handler, socket) in SOCKET_SET.lock().iter() {
         //     debug_println!("get socket, handle: {}, socket: {:?}", handler, socket);
         // }
-        let _ = yield_now().await;
+        // let _ = yield_now().await;
+        yield_now().await;
     }
 }
 
@@ -157,25 +158,25 @@ pub async fn nw_recv_req_coroutine(arg: usize) {
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
     let mut cnt = 0;
     loop {
-        if let Some(item) = new_buffer.req_items.get_first_item() {
-            cnt += 1;
-            if let Some(item) = process_req(&item, arg).await {
-                new_buffer.res_items.write_free_item(&item).unwrap();
-                if new_buffer.recv_reply_status.load(SeqCst) == false {
-                    new_buffer.recv_reply_status.store(true, SeqCst);
-                    unsafe { uipi_send(async_args.server_sender_id.unwrap() as u64); }
-                }
-            }
-            if cnt >= 20 {
-                possible_switch().await;
-                cnt = 0;
-            }
-        } else {
-            new_buffer.recv_req_status.store(false, SeqCst);
-            cnt = 0;
-            yield_now().await;
-            // debug_println!("nw recv cnt: {}", cnt);
-        }
+        // if let Some(item) = new_buffer.req_items.get_first_item() {
+        //     cnt += 1;
+        //     if let Some(item) = process_req(&item, arg).await {
+        //         new_buffer.res_items.write_free_item(&item).unwrap();
+        //         if new_buffer.recv_reply_status.load(SeqCst) == false {
+        //             new_buffer.recv_reply_status.store(true, SeqCst);
+        //             unsafe { uipi_send(async_args.server_sender_id.unwrap() as u64); }
+        //         }
+        //     }
+        //     if cnt >= 20 {
+        //         possible_switch().await;
+        //         cnt = 0;
+        //     }
+        // } else {
+        //     new_buffer.recv_req_status.store(false, SeqCst);
+        //     cnt = 0;
+        //     yield_now().await;
+        //     // debug_println!("nw recv cnt: {}", cnt);
+        // }
     }
 }
 
@@ -248,7 +249,9 @@ async fn tcp_recv_coroutine(mut item: Option<IPCItem>, async_args: &mut AsyncArg
         // debug_println!("tcp_recv_coroutine");
         if item.is_none() {
             // debug_println!("tcp_recv_coroutine yield");
-            item = yield_now().await;
+            yield_now().await;
+            // item = yield_now().await;
+            // item = new_buffer.res_items.read_item_at(coroutine_get_current().0 as usize);
             continue;
         }
         let item_inner = item.take().unwrap();
@@ -263,12 +266,12 @@ async fn tcp_recv_coroutine(mut item: Option<IPCItem>, async_args: &mut AsyncArg
             if socket.can_recv() {
                 if let Ok(read_size) = socket.recv_slice(&mut tcp_buffer.data[..min_len]) {
                     drop(bindings);
-                    let reply = MessageBuilder::recv_reply(cid, read_size);
-                    new_buffer.res_items.write_free_item(&reply).unwrap();
-                    if new_buffer.recv_reply_status.load(SeqCst) == false {
-                        new_buffer.recv_reply_status.store(true, SeqCst);
-                        unsafe { uipi_send(async_args.server_sender_id.unwrap() as u64); }
-                    }
+                    // let reply = MessageBuilder::recv_reply(cid, read_size);
+                    // new_buffer.res_items.write_free_item(&reply).unwrap();
+                    // if new_buffer.recv_reply_status.load(SeqCst) == false {
+                    //     new_buffer.recv_reply_status.store(true, SeqCst);
+                    //     unsafe { uipi_send(async_args.server_sender_id.unwrap() as u64); }
+                    // }
                 }
                 break;
             } else {
@@ -300,7 +303,7 @@ async fn tcp_accept_coroutine(cid: CoroutineId, port: u16, async_args: &mut Asyn
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
     if let Ok((handle, (_local_ep, remote_ep))) = unsafe { LISTEN_TABLE.accept(port) } {
         let reply = MessageBuilder::listen_reply(cid, handle);
-        new_buffer.res_items.write_free_item(&reply).unwrap();
+        // new_buffer.res_items.write_free_item(&reply).unwrap();
         if new_buffer.recv_reply_status.load(SeqCst) == false {
             new_buffer.recv_reply_status.store(true, SeqCst);
             unsafe { uipi_send(async_args.server_sender_id.unwrap() as u64); }

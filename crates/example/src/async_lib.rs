@@ -1,4 +1,3 @@
-use crate::device::taic::interface::register_receiver;
 use crate::image_utils::UserImageUtils;
 use alloc::collections::BTreeMap;
 use async_runtime::utils::IndexAllocator;
@@ -32,8 +31,8 @@ pub static mut UINT_TRIGGER: usize = 0;
 
 pub type SenderID = i64;
 #[thread_local]
-static mut SENDER_MAP: [usize; 64] = [0; 64];//sender 对应的buffer
-// static mut SENDER_MAP: BTreeMap<SenderID, &'static mut NewBuffer> = BTreeMap::new();
+static mut SENDER_MAP: [usize; 64] = [0; 64]; //sender 对应的buffer
+                                              // static mut SENDER_MAP: BTreeMap<SenderID, &'static mut NewBuffer> = BTreeMap::new();
 
 #[thread_local]
 static mut IMMEDIATE_VALUE: [Option<IPCItem>; MAX_TASK_NUM] = [None; MAX_TASK_NUM];
@@ -133,10 +132,10 @@ impl AsyncArgs {
 }
 
 #[inline]
-pub async fn yield_now() -> Option<IPCItem> {
+pub async fn yield_now() {
     let helper = YieldHelper::new();
     helper.await;
-    unsafe { IMMEDIATE_VALUE[coroutine_get_current().0 as usize].take() }
+    // unsafe { IMMEDIATE_VALUE[coroutine_get_current().0 as usize].take() }
 }
 
 #[inline]
@@ -182,10 +181,11 @@ pub async fn seL4_Call(
     mut message_info: MessageInfo,
 ) -> Result<MessageInfo, ()> {
     let req_item = IPCItem::from(
+        0,
         coroutine_get_current(),
         message_info.inner().0.inner()[0] as u32,
     );
-    match seL4_Call_with_item(sender_id, &req_item).await {
+    match sel4_call_with_item(sender_id, 0, &req_item).await {
         Ok(res) => {
             // let mut reply = MessageInfo::new(0, 0, 0, 0);
             message_info.inner_mut().0.inner_mut()[0] = res.msg_info as u64;
@@ -194,7 +194,7 @@ pub async fn seL4_Call(
         _ => Err(()),
     }
 }
-
+//dispatcher协程
 pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
     // let cid = coroutine_get_current();
     static mut REPLY_COUNT: usize = 0;
@@ -202,14 +202,12 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
     let new_buffer = async_args.ipc_new_buffer.as_mut().unwrap();
     let server_process_id = async_args.server_process_id.unwrap();
     let current_cid = coroutine_get_current().0 as usize;
+    crate::device::taic::interface::register_receiver(server_process_id, 0, current_cid,true,true);
     loop {
-        if let Some(item) = new_buffer.res_items.get_first_item() {
+        if let Some(idx) = new_buffer.res_items.get_first_idx() {
             // debug_println!("recv reply: {:?}", item);
             // coroutine_wake_with_value(&item.cid, item.msg_info as u64);
-            unsafe {
-                IMMEDIATE_VALUE[item.cid.0 as usize] = Some(item);
-                coroutine_wake(&item.cid);
-            }
+            coroutine_wake(&new_buffer.data[idx].cid);
             unsafe {
                 REPLY_COUNT += 1;
                 if REPLY_COUNT == reply_num {
@@ -217,7 +215,6 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
                 }
             }
         } else {
-            register_receiver(server_process_id, current_cid);
             new_buffer.recv_reply_status.store(false, SeqCst);
             // coroutine_wake(&cid);
             yield_now().await;
@@ -233,7 +230,8 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
     static mut REPLY_COUNT: usize = 0;
     let new_buffer = NewBuffer::from_ptr(new_buffer_ptr);
     loop {
-        if let Some(item) = new_buffer.res_items.get_first_item() {
+        if let Some(idx) = new_buffer.res_items.get_first_idx() {
+            let item = new_buffer.data[idx];
             // debug_println!("recv req: {:?}", item);
             // coroutine_wake_with_value(&item.cid, item.msg_info as u64);
             // unsafe {
@@ -263,7 +261,7 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
             }
         } else {
             new_buffer.recv_reply_status.store(false, SeqCst);
-            register_receiver(2, 1);
+            crate::device::taic::interface::register_receiver(2, 0, cid.0 as usize,true,true);
             // coroutine_wake(&cid);
             yield_now().await;
             debug_println!("wake");
@@ -320,40 +318,37 @@ fn convert_option_mut_ref<T>(ptr: usize) -> Option<&'static mut T> {
 
 pub static mut SUBMIT_SYSCALL_CNT: usize = 0;
 
-pub async fn seL4_Call_with_item(recv: &SenderID, item: &IPCItem) -> Result<IPCItem, ()> {
-    if let Some(new_buffer) =
-        unsafe { convert_option_mut_ref::<NewBuffer>(SENDER_MAP[*recv as usize]) }
-    {
-        // todo: bugs need to fix
-        // let msg_info = item.msg_info;
-        //ipc item装到buffer里 (push safe)
-        new_buffer.req_items.write_free_item(&item).unwrap();
-        // debug_println!("seL4_Call_with_item: write item: {:?}", item.msg_info);
-        //如果接收方不在处理请求，则需要唤醒接收方
-        if new_buffer.recv_req_status.load(SeqCst) == false {
-            new_buffer.recv_req_status.store(true, SeqCst);
-            if *recv != 63 {
-                crate::device::taic::interface::send_signal(*recv as usize);
-            } else {
-                // todo: submit syscall
-                debug_println!("seL4_Call_with_item: Submit Syscall!");
-                //cnt record for test
-                unsafe {
-                    SUBMIT_SYSCALL_CNT += 1;
-                }
-                //submit syscall
-                crate::device::taic::interface::send_signal(2);
-                // wake_syscall_handler();
-            }
-        }
-        else {
-            debug_println!("no need to wake");
-        }
-        if let Some(res) = yield_now().await {
-            return Ok(res);
-        }
+pub async fn sel4_call_with_item(recv: &SenderID, vec: u32, item: &IPCItem) -> Result<IPCItem, &'static str> {
+    // 获取buffer的可变引用
+    let new_buffer =
+        match unsafe { convert_option_mut_ref::<NewBuffer>(SENDER_MAP[*recv as usize]) } {
+            Some(buffer) => buffer,
+            None => return Err("Failed to get service buffer"),
+        };
+
+    //ipc item存入buffer
+    let idx = match new_buffer.idx_allocator.allocate() {
+        Some(value) => value,
+        None => return Err("Failed to allocate index in buffer"),
+    };
+    new_buffer.data[idx] = *item;
+    if new_buffer.req_items.write_free_idx(idx).is_err() {
+        return Err("Failed to write free index");
     }
-    Err(())
+    // debug_println!("sel4_call_with_item: write item: {:?}", item.msg_info);
+
+    //如果接收方不在处理请求，则需要唤醒接收方
+    if new_buffer.recv_req_status.load(SeqCst) == false {
+        new_buffer.recv_req_status.store(true, SeqCst);
+        // debug_println!("[call{:?}] recv:{:?}, vec:{:?}",cid,*recv,vec);
+        crate::device::taic::interface::send_signal(*recv as usize, vec as usize);
+    }
+    // debug_println!("[call{:?}] yield",coroutine_get_current().0);
+
+    //阻塞等回复
+    yield_now().await;
+    // debug_println!("[call{:?}] waked",coroutine_get_current().0);
+    Ok(new_buffer.data[idx])
 }
 
 pub async fn seL4_Send_with_item(sender_id: &SenderID, item: &IPCItem) -> Result<IPCItem, ()> {
@@ -364,8 +359,8 @@ pub async fn seL4_Send_with_item(sender_id: &SenderID, item: &IPCItem) -> Result
         // todo: bugs need to fix
         let msg_info = item.msg_info;
         //写buffer
-        new_buffer.req_items.write_free_item(&item).unwrap();
-        // debug_println!("seL4_Call_with_item: write item: {:?}", msg_info);
+        // new_buffer.req_items.write_free_item(&item).unwrap();
+        // debug_println!("sel4_call_with_item: write item: {:?}", msg_info);
         if new_buffer.recv_req_status.load(SeqCst) == false {
             new_buffer.recv_req_status.store(true, SeqCst);
             //如果不是系统调用
@@ -376,7 +371,7 @@ pub async fn seL4_Send_with_item(sender_id: &SenderID, item: &IPCItem) -> Result
                 }
             } else {
                 // todo: submit syscall
-                // debug_println!("seL4_Call_with_item: Submit Syscall!");
+                // debug_println!("sel4_call_with_item: Submit Syscall!");
                 wake_syscall_handler();
             }
         }
@@ -411,7 +406,7 @@ pub async fn seL4_Untyped_Retype(
     syscall_item.extend_msg[5] = node_depth as u16;
     syscall_item.extend_msg[6] = node_offset as u16;
     syscall_item.extend_msg[7] = num_objects as u16;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }
 
@@ -422,7 +417,7 @@ pub async fn seL4_Putchar(c: u16) -> Result<MessageInfo, ()> {
     syscall_item.cid = cid;
     syscall_item.msg_info = AsyncMessageLabel::PutChar.into();
     syscall_item.extend_msg[0] = c;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }
 
@@ -443,7 +438,7 @@ pub async fn seL4_Putstring(data: &[u16]) -> Result<MessageInfo, ()> {
         for j in 0..num {
             syscall_item.extend_msg[j + 1] = data[offset + j];
         }
-        seL4_Call_with_item(&sender_id, &syscall_item).await;
+        sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     }
     Err(())
 }
@@ -461,7 +456,7 @@ pub async fn seL4_RISCV_Page_Get_Address(vaddr: usize) -> Result<MessageInfo, ()
     syscall_item.cid = cid;
     syscall_item.msg_info = AsyncMessageLabel::RISCVPageGetAddress.into();
     syscall_item.extend_msg[0] = bits as u16;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }
 
@@ -476,7 +471,7 @@ pub async fn seL4_TCB_Bind_Notification(
     syscall_item.msg_info = AsyncMessageLabel::TCBBindNotification.into();
     syscall_item.extend_msg[0] = service.bits() as u16;
     syscall_item.extend_msg[1] = notification.bits() as u16;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }
 
@@ -487,7 +482,7 @@ pub async fn seL4_TCB_Unbind_Notification(service: TCB) -> Result<MessageInfo, (
     syscall_item.cid = cid;
     syscall_item.msg_info = AsyncMessageLabel::TCBUnbindNotification.into();
     syscall_item.extend_msg[0] = service.bits() as u16;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }
 
@@ -504,7 +499,7 @@ pub async fn seL4_CNode_Delete(
     syscall_item.extend_msg[0] = service.bits() as u16;
     syscall_item.extend_msg[1] = node_index as u16;
     syscall_item.extend_msg[2] = node_depth as u16;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }
 
@@ -529,7 +524,7 @@ pub async fn seL4_CNode_Copy(
     syscall_item.extend_msg[4] = src_index as u16;
     syscall_item.extend_msg[5] = src_depth as u16;
     syscall_item.extend_msg[6] = cap_right.into_inner().0.inner()[0] as u16;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }
 
@@ -556,7 +551,7 @@ pub async fn seL4_CNode_Mint(
     syscall_item.extend_msg[5] = src_depth as u16;
     syscall_item.extend_msg[6] = cap_right.into_inner().0.inner()[0] as u16;
     syscall_item.extend_msg[7] = badge as u16;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }
 
@@ -576,7 +571,7 @@ pub async fn seL4_RISCV_PageTable_Map(
     // debug_println!("seL4_RISCV_PageTable_Map: vaddr >> 12 = {:#x}", vaddr >> 12);
     syscall_item.extend_msg[2] = (vaddr >> 12) as u16;
     syscall_item.extend_msg[3] = attrs as u16;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }
 
@@ -587,7 +582,7 @@ pub async fn seL4_RISCV_PageTable_Unmap(service_cptr: CPtr) -> Result<MessageInf
     syscall_item.cid = cid;
     syscall_item.msg_info = AsyncMessageLabel::RISCVPageTableUnmap.into();
     syscall_item.extend_msg[0] = service_cptr.bits() as u16;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }
 
@@ -609,7 +604,7 @@ pub async fn seL4_RISCV_Page_Map(
     syscall_item.extend_msg[2] = (vaddr >> 12) as u16;
     syscall_item.extend_msg[3] = rights as u16;
     syscall_item.extend_msg[4] = attrs as u16;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }
 
@@ -620,6 +615,6 @@ pub async fn seL4_RISCV_Page_Unmap(service_cptr: CPtr) -> Result<MessageInfo, ()
     syscall_item.cid = cid;
     syscall_item.msg_info = AsyncMessageLabel::RISCVPageUnmap.into();
     syscall_item.extend_msg[0] = service_cptr.bits() as u16;
-    seL4_Call_with_item(&sender_id, &syscall_item).await;
+    sel4_call_with_item(&sender_id, 0, &syscall_item).await;
     Err(())
 }

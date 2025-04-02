@@ -11,8 +11,10 @@
 #![feature(int_roundings)]
 #![feature(slice_index_methods)]
 #![feature(build_hasher_simple_hash_one)]
+#![feature(generic_const_exprs)]
 #![feature(new_uninit)]
 #![allow(dead_code, unused_imports)]
+
 extern crate alloc;
 mod heap;
 mod object_allocator;
@@ -21,6 +23,8 @@ mod image_utils;
 mod ipc_test;
 mod syscall_test;
 mod async_syscall;
+mod sync;
+mod fuse;
 
 mod device;
 mod async_tcp_test;
@@ -45,6 +49,7 @@ use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 use crate::sync_tcp_test::net_stack_test;
 // use crate::async_tcp_test::net_stack_test;
 use crate::poll_net_test::smoltcp_poll_test;
+use crate::fuse::fuse_test;
 const LOG_LEVEL: LevelFilter = LevelFilter::Debug;
 
 static LOGGER: Logger = LoggerBuilder::const_default()
@@ -89,11 +94,12 @@ fn main(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     recv_tcb.tcb_set_affinity(0);
     image_utils::UserImageUtils.init(bootinfo);
     GLOBAL_OBJ_ALLOCATOR.lock().init(bootinfo);
-    // async_ipc_test(bootinfo)?;
+    // fuse_test(bootinfo)?;
+    async_ipc_test(bootinfo)?;
     // sync_ipc_test(bootinfo)?;
     // net_stack_test(bootinfo)?;
     // smoltcp_poll_test(bootinfo);
-    async_syscall_test(bootinfo)?;
+    // async_syscall_test(bootinfo)?;
     debug_println!("TEST_PASS");
 
     sel4::BootInfo::init_thread_tcb().tcb_suspend()?;
