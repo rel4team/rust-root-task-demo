@@ -20,9 +20,7 @@ use sel4_root_task::debug_println;
 use spin::Mutex;
 // use uintr::{register_receiver, register_sender, uipi_send};
 use crate::async_lib::{
-    recv_reply_coroutine, register_recv_cid, register_sender_buffer, register_sender_buffer2,
-    seL4_Call, sel4_call_with_item, uintr_handler, wake_recv_coroutine, yield_now, AsyncArgs,
-    SenderID, UINT_TRIGGER,
+    recv_reply_coroutine, register_recv_cid, register_sender_buffer, register_sender_buffer2, seL4_Call, sel4_call_with_item, uintr_handler, wake_recv_coroutine, yield_now, AsyncArgs, SenderID, TEST_CLOCK, TEST_TAIC_SEND_SIGNAL, UINT_TRIGGER
 };
 use crate::device::taic::interface::{
     alloc_receiver, alloc_vec, free_vec, register_receiver, register_sender,
@@ -113,9 +111,10 @@ pub fn async_helper_thread(arg: usize, ipc_buffer_addr: usize) {
         // debug_println!("coroutine_run_until_blocked: {}", get_clock() - start_inner);
         r#yield();
     }
+    // debug_println!("cannot get here??");
     // coroutine_run_until_complete();
     let end = get_clock();
-    let uintr_trigger_info = format!("client uintr trigger cnt: {}", unsafe { UINT_TRIGGER });
+    let uintr_trigger_info = format!("client uintr trigger cnt: {}", unsafe { TEST_TAIC_SEND_SIGNAL });
     mutex_print(uintr_trigger_info);
     let async_test_res_info = format!("async client passed: cost: {}", end - start);
 
@@ -130,26 +129,23 @@ async fn client_call_test(sender_id: SenderID, msg: u64) {
     unsafe {
         let cid = coroutine_get_current();
         let vec = if let Some(res) = alloc_vec() {
-            // register_receiver(sender_id as usize, res, cid.0 as usize, false, false);
+            register_receiver(sender_id as usize, res, cid.0 as usize, true, true);
             res
         } else {
             0
         };
         // debug_println!("[client] get vec {:?}",vec);
-        // sync_memory_test();
-        // sync_test_address(new_buffer_ptr);
         for i in 0..SEND_NUM / COROUTINE_NUM{
         // while MUTE_SEND_NUM > 0 {
-            let start = get_clock() as usize;
-            register_receiver(sender_id as usize, vec, cid.0 as usize, false, false);
+            // register_receiver(sender_id as usize, vec, cid.0 as usize, false, false);
             // MUTE_SEND_NUM -= 1;
             // debug_println!("[client{:?}] mute send{:?}", cid.0,MUTE_SEND_NUM);
+            TEST_CLOCK.start();
             let item = IPCItem::from(vec as u32, cid, msg as u32);
             // debug_println!("get here???7");
             if let Ok(_reply) = sel4_call_with_item(&sender_id, 0, &item).await {
                 // debug_println!("[client] register receiver vec:{:?} handler:{:?}",vec, cid.0);
-                let end: usize = get_clock() as usize;
-                IPC_SEND_TIME += start - end;
+                TEST_CLOCK.stop();
                 SUCESS_NUM = SUCESS_NUM + 1;
                 if SUCESS_NUM % 256 == 0 {
                     debug_println!("[client{:?}] success num:{:?}", cid.0, SUCESS_NUM);
@@ -291,10 +287,10 @@ pub fn async_ipc_test(_bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
         r#yield();
     }
     unsafe {
-        debug_println!("success ipc num {:?},time:{:?}", SUCESS_NUM,IPC_SEND_TIME);
+        debug_println!("success ipc num {:?},time:{:?}", SUCESS_NUM,TEST_CLOCK.get_duration());
     }
     debug_println!("TEST_PASS");
-    let uintr_trigger_info = format!("server uintr cnt: {}", unsafe { UINT_TRIGGER });
+    let uintr_trigger_info = format!("client uintr cnt: {}", unsafe { TEST_TAIC_SEND_SIGNAL });
     mutex_print(uintr_trigger_info);
 
     sel4::BootInfo::init_thread_tcb().tcb_suspend()?;

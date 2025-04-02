@@ -52,6 +52,33 @@ pub fn register_recv_cid(cid: &CoroutineId) -> Option<UIntVec> {
     }
 }
 
+pub struct TestClock{
+    start:u64,
+    duration:u64
+}
+impl TestClock {
+    const fn new() -> TestClock {
+        TestClock {
+            start: 0,
+            duration: 0,
+        }
+    }
+
+    pub fn start(&mut self) {
+        self.start = get_clock();
+    }
+
+    pub fn stop(&mut self) {
+        self.duration += get_clock() - self.start;
+    }
+
+    pub fn get_duration(&self) -> u64 {
+        self.duration
+    }
+}
+pub static mut TEST_CLOCK:TestClock = TestClock::new();
+pub static mut TEST_TAIC_SEND_SIGNAL:usize = 0;
+
 pub fn register_sender_buffer(
     ntfn: Notification,
     new_buffer: &'static mut NewBuffer,
@@ -342,12 +369,18 @@ pub async fn sel4_call_with_item(recv: &SenderID, vec: u32, item: &IPCItem) -> R
         new_buffer.recv_req_status.store(true, SeqCst);
         // debug_println!("[call{:?}] recv:{:?}, vec:{:?}",cid,*recv,vec);
         crate::device::taic::interface::send_signal(*recv as usize, vec as usize);
+        unsafe { TEST_CLOCK.stop() };
+        unsafe { TEST_TAIC_SEND_SIGNAL += 1 };
+    }
+    else{
+        unsafe { TEST_CLOCK.stop() };
     }
     // debug_println!("[call{:?}] yield",coroutine_get_current().0);
 
     //阻塞等回复
     yield_now().await;
     // debug_println!("[call{:?}] waked",coroutine_get_current().0);
+    unsafe { TEST_CLOCK.start() };
     Ok(new_buffer.data[idx])
 }
 
