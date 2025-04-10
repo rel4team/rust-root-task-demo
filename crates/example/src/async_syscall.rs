@@ -80,8 +80,9 @@ pub async fn syscall_riscv_page_map(
     vaddr: usize,
     rights: usize,
     attrs: usize,
+    vec:usize
 ) {
-    seL4_RISCV_Page_Map(service, page_table, vaddr, rights, attrs).await;
+    seL4_RISCV_Page_Map(service, page_table, vaddr, rights, attrs, vec).await;
 }
 
 pub async fn syscall_riscv_page_unmap(

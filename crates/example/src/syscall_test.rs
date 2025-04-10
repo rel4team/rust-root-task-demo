@@ -1,12 +1,12 @@
 use crate::async_lib::recv_reply_coroutine_async_syscall;
 use crate::async_lib::{AsyncArgs, SUBMIT_SYSCALL_CNT, UINT_TRIGGER};
 use crate::device::taic::interface::{
-    alloc_receiver, register_receiver, register_sender, register_usoft_handler,
+    alloc_receiver, alloc_vec, register_receiver, register_sender, register_usoft_handler
 };
 use alloc::alloc::alloc_zeroed;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use async_runtime::{coroutine_run_until_blocked, coroutine_spawn, NewBuffer};
+use async_runtime::{coroutine_get_current, coroutine_run_until_blocked, coroutine_spawn, NewBuffer};
 use async_runtime::{
     coroutine_run_until_complete, coroutine_spawn_with_prio, get_executor, get_executor_ptr,
     runtime_init,
@@ -300,14 +300,15 @@ async fn test_async_riscv_page_section(obj_allocator: &Mutex<ObjectAllocator>) {
     let frame = sel4::BootInfo::init_cspace_local_cptr::<sel4::cap_type::_4KPage>(frame_slot);
     debug_println!("\nBegin Async RISCV Page Map Test");
     // let frame = obj_allocator.lock().alloc_frame().unwrap();
-    syscall_riscv_page_map(
-        frame.cptr(),
-        vspace.cptr(),
-        vaddr,
-        CapRights::read_write().into_inner().0.inner()[0] as usize,
-        VMAttributes::default().into_inner() as usize,
-    )
-    .await;
+    //todo change this
+    // syscall_riscv_page_map(
+    //     frame.cptr(),
+    //     vspace.cptr(),
+    //     vaddr,
+    //     CapRights::read_write().into_inner().0.inner()[0] as usize,
+    //     VMAttributes::default().into_inner() as usize,
+    // )
+    // .await;
 
     debug_println!("\nWrite and Read Data to show the map result:");
     let data = unsafe { &mut *(vaddr as *mut TestData) };
@@ -471,6 +472,12 @@ fn async_address_test(ptr: usize) {
 
 async fn async_memery_single_test(frame: LocalCPtr<_4KPage>, vaddr: usize) {
     let vspace = sel4::BootInfo::init_thread_vspace();
+    let vec = if let Some(res) = alloc_vec() {
+        // register_receiver(sender_id as usize, res, cid.0 as usize, false, false);
+        res
+    } else {
+        0
+    };
     for i in 0..EPOCH {
         syscall_riscv_page_map(
             frame.cptr(),
@@ -478,6 +485,7 @@ async fn async_memery_single_test(frame: LocalCPtr<_4KPage>, vaddr: usize) {
             vaddr,
             CapRights::read_write().into_inner().0.inner()[0] as usize,
             VMAttributes::default().into_inner() as usize,
+            vec
         )
         .await;
         syscall_riscv_page_unmap(frame.cptr()).await;

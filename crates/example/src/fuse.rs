@@ -6,7 +6,7 @@ use sel4_root_task::debug_println;
 
 const VIRTIO_BASE_ADDRE: usize = 0x10001000;
 const VIRTIO_LEN: usize = 0x1000;
-const V_OFFSET:usize = 0x5000_0000 - VIRTIO_BASE_ADDRE;
+// const V_OFFSET:usize = 0x5000_0000 - VIRTIO_BASE_ADDRE;
 
 pub fn fuse_test(boot_info: &sel4::BootInfo) -> sel4::Result<!> {
     let obj_allocator = &GLOBAL_OBJ_ALLOCATOR;

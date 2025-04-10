@@ -134,13 +134,13 @@ impl AsyncMemoryAllocator {
             if let Some(slot) = self.alloc_slot() {
                 let frame = self.frames[slot];
                 let vspace = sel4::BootInfo::init_thread_vspace();
-                syscall_riscv_page_map(
-                    frame.cptr(),
-                    vspace.cptr(),
-                    vaddr,
-                    CapRights::read_write().into_inner().0.inner()[0] as usize,
-                    VMAttributes::default().into_inner() as usize
-                ).await;
+                // syscall_riscv_page_map(
+                //     frame.cptr(),
+                //     vspace.cptr(),
+                //     vaddr,
+                //     CapRights::read_write().into_inner().0.inner()[0] as usize,
+                //     VMAttributes::default().into_inner() as usize
+                // ).await;
                 self.mapped_vaddrs[slot] = vaddr;
             } else {
                 debug_println!("AsyncMemoryAllocator: no available slot!");

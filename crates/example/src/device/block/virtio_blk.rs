@@ -29,7 +29,7 @@ use crate::sync::UPSafeCell;
 
 
 #[allow(unused)]
-const VIRTIO0: usize = 0x5000_1000;
+const VIRTIO0: usize = 0x5000_2000;
 
 
 

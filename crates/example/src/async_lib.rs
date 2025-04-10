@@ -625,6 +625,7 @@ pub async fn seL4_RISCV_Page_Map(
     vaddr: usize,
     rights: usize,
     attrs: usize,
+    vec:usize
 ) -> Result<MessageInfo, ()> {
     let sender_id = 63;
     let mut syscall_item = IPCItem::new();
