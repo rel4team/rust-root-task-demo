@@ -140,6 +140,7 @@ impl AsyncMemoryAllocator {
                     vaddr,
                     CapRights::read_write().into_inner().0.inner()[0] as usize,
                     VMAttributes::default().into_inner() as usize
+                    ,0
                 ).await;
                 self.mapped_vaddrs[slot] = vaddr;
             } else {
@@ -156,7 +157,7 @@ impl AsyncMemoryAllocator {
             // 如果被映射了则解除映射
             if vaddr == va {
                 let frame = self.frames[index];
-                syscall_riscv_page_unmap(frame.cptr()).await;
+                syscall_riscv_page_unmap(frame.cptr(),0).await;
                 self.mapped_vaddrs[index] = 0;
                 // 回收slot
                 self.recycled.push(index);

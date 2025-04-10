@@ -235,12 +235,12 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
             // debug_println!("recv reply: {:?}", item);
             // coroutine_wake_with_value(&item.cid, item.msg_info as u64);
             coroutine_wake(&new_buffer.data[idx].cid);
-            unsafe {
-                REPLY_COUNT += 1;
-                if REPLY_COUNT == reply_num {
-                    break;
-                }
-            }
+            // unsafe {
+            //     REPLY_COUNT += 1;
+            //     if REPLY_COUNT == reply_num {
+            //         break;
+            //     }
+            // }
         } else {
             new_buffer.recv_reply_status.store(false, SeqCst);
             // coroutine_wake(&cid);
@@ -252,13 +252,14 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
 //在主线程下
 pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num: usize) {
     let cid = coroutine_get_current();
-    debug_println!("recv reply cid: {:?}", cid);
+    debug_println!("dispatcher cid: {:?}", cid);
     #[thread_local]
     static mut REPLY_COUNT: usize = 0;
     let new_buffer = NewBuffer::from_ptr(new_buffer_ptr);
     loop {
         if let Some(idx) = new_buffer.res_items.get_first_idx() {
-            let item = new_buffer.data[idx];
+            coroutine_wake(&new_buffer.data[idx].cid);
+            // let item = new_buffer.data[idx];
             // debug_println!("recv req: {:?}", item);
             // coroutine_wake_with_value(&item.cid, item.msg_info as u64);
             // unsafe {
@@ -266,26 +267,26 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
             //     coroutine_wake(&item.cid);
             // }
             // debug_println!("recv_reply_coroutine_async_syscall: get item: {:?}", item);
-            let label: AsyncMessageLabel = AsyncMessageLabel::from(item.msg_info);
-            match label {
-                AsyncMessageLabel::RISCVPageGetAddress => {
-                    let mut paddr: usize = 0;
-                    paddr = paddr + (item.extend_msg[1] as usize) << 48;
-                    paddr = paddr + (item.extend_msg[2] as usize) << 32;
-                    paddr = paddr + (item.extend_msg[3] as usize) << 16;
-                    paddr = paddr + (item.extend_msg[4] as usize);
-                    debug_println!("recv_reply_coroutine_async_syscall: async RISCVPageGetAddress get paddr: {:#x}", paddr);
-                }
-                _ => {}
-            }
-            wake_with_value(&item.cid, &item);
-            unsafe {
-                REPLY_COUNT += 1;
-                // debug_println!("Reply count: {:?}", REPLY_COUNT);
-                if REPLY_COUNT == reply_num {
-                    break;
-                }
-            }
+            // let label: AsyncMessageLabel = AsyncMessageLabel::from(item.msg_info);
+            // match label {
+            //     AsyncMessageLabel::RISCVPageGetAddress => {
+            //         let mut paddr: usize = 0;
+            //         paddr = paddr + (item.extend_msg[1] as usize) << 48;
+            //         paddr = paddr + (item.extend_msg[2] as usize) << 32;
+            //         paddr = paddr + (item.extend_msg[3] as usize) << 16;
+            //         paddr = paddr + (item.extend_msg[4] as usize);
+            //         debug_println!("recv_reply_coroutine_async_syscall: async RISCVPageGetAddress get paddr: {:#x}", paddr);
+            //     }
+            //     _ => {}
+            // }
+            // wake_with_value(&item.cid, &item);
+            // unsafe {
+            //     REPLY_COUNT += 1;
+            //     // debug_println!("Reply count: {:?}", REPLY_COUNT);
+            //     if REPLY_COUNT == reply_num {
+            //         break;
+            //     }
+            // }
         } else {
             new_buffer.recv_reply_status.store(false, SeqCst);
             crate::device::taic::interface::register_receiver(2, 0, cid.0 as usize,true,true);
@@ -625,12 +626,14 @@ pub async fn seL4_RISCV_Page_Map(
     vaddr: usize,
     rights: usize,
     attrs: usize,
+    vec:usize
 ) -> Result<MessageInfo, ()> {
-    let sender_id = 63;
+    let sender_id = 0;
     let mut syscall_item = IPCItem::new();
     let cid = coroutine_get_current();
     // debug_println!("seL4_RISCV_Page_Map: service: {:#x}, page_table: {:x}, vaddr: {:#x}, rights: {:?}, attrs: {:?}", service_cptr.bits(), page_table_cptr.bits(), vaddr, rights, attrs);
     syscall_item.cid = cid;
+    syscall_item.vec = vec as u32;
     syscall_item.msg_info = AsyncMessageLabel::RISCVPageMap.into();
     syscall_item.extend_msg[0] = service_cptr.bits() as u16;
     syscall_item.extend_msg[1] = page_table_cptr.bits() as u16;
@@ -641,11 +644,12 @@ pub async fn seL4_RISCV_Page_Map(
     Err(())
 }
 
-pub async fn seL4_RISCV_Page_Unmap(service_cptr: CPtr) -> Result<MessageInfo, ()> {
-    let sender_id = 63;
+pub async fn seL4_RISCV_Page_Unmap(service_cptr: CPtr,vec:usize) -> Result<MessageInfo, ()> {
+    let sender_id = 0;
     let mut syscall_item = IPCItem::new();
     let cid = coroutine_get_current();
     syscall_item.cid = cid;
+    syscall_item.vec = vec as u32;
     syscall_item.msg_info = AsyncMessageLabel::RISCVPageUnmap.into();
     syscall_item.extend_msg[0] = service_cptr.bits() as u16;
     sel4_call_with_item(&sender_id, 0, &syscall_item).await;

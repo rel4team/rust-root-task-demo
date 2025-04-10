@@ -30,7 +30,7 @@ pub fn alloc_receiver(tcb: TCB, ntfn: Notification, hart_id: usize) -> Result<us
     // super::init_utrap_handler();
     ntfn.register_receiver(tcb.cptr())?; //获取一个buffer?
     let mut recv_idx = 0; //
-                          //闭包操作buffer
+    //闭包操作buffer
     with_ipc_buffer(|buffer| {
         unsafe {
             //一个buffer对应一个queue
