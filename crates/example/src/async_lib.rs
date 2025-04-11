@@ -42,33 +42,6 @@ pub type UIntVec = usize;
 #[thread_local]
 static mut WAKE_MAP: BTreeMap<UIntVec, CoroutineId> = BTreeMap::new();
 
-pub struct TestClock{
-    start:u64,
-    duration:u64
-}
-impl TestClock {
-    const fn new() -> TestClock {
-        TestClock {
-            start: 0,
-            duration: 0,
-        }
-    }
-
-    pub fn start(&mut self) {
-        self.start = get_clock();
-    }
-
-    pub fn stop(&mut self) {
-        self.duration += get_clock() - self.start;
-    }
-
-    pub fn get_duration(&self) -> u64 {
-        self.duration
-    }
-}
-pub static mut TEST_CLOCK:TestClock = TestClock::new();
-pub static mut TEST_TAIC_SEND_SIGNAL:usize = 0;
-
 pub fn register_recv_cid(cid: &CoroutineId) -> Option<UIntVec> {
     unsafe {
         if let Some(vec) = UINT_VEC_ALLOCATOR.allocate() {
@@ -91,14 +64,19 @@ impl TestClock {
         }
     }
 
+    #[inline]
     pub fn start(&mut self) {
         self.start = get_clock();
+        // debug_println!("clock start {:?}",self.duration);
     }
-
+    
+    #[inline]
     pub fn stop(&mut self) {
         self.duration += get_clock() - self.start;
+        // debug_println!("clock stop {:?}",self.duration);
     }
 
+    #[inline]
     pub fn get_duration(&self) -> u64 {
         self.duration
     }
@@ -130,7 +108,7 @@ pub fn register_sender_buffer2(sender_id: usize, new_buffer: &'static mut NewBuf
 pub fn register_async_syscall_buffer(new_buffer_ptr: usize) {
     // unsafe { SENDER_MAP.insert(63 as SenderID, new_buffer); }
     unsafe {
-        SENDER_MAP[63] = new_buffer_ptr;
+        SENDER_MAP[0] = new_buffer_ptr;
     }
 }
 
@@ -283,8 +261,10 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
     #[thread_local]
     static mut REPLY_COUNT: usize = 0;
     let new_buffer = NewBuffer::from_ptr(new_buffer_ptr);
+    crate::device::taic::interface::register_receiver(0, 0, cid.0 as usize,true,true);
     loop {
         if let Some(idx) = new_buffer.res_items.get_first_idx() {
+            // debug_println!("recv_reply_coroutine_async_syscall: get idx: {:?} cid: {:?}", idx,new_buffer.data[idx].cid.0);
             coroutine_wake(&new_buffer.data[idx].cid);
             // let item = new_buffer.data[idx];
             // debug_println!("recv req: {:?}", item);
@@ -293,7 +273,7 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
             //     IMMEDIATE_VALUE[item.cid.0 as usize] = Some(item);
             //     coroutine_wake(&item.cid);
             // }
-            // debug_println!("recv_reply_coroutine_async_syscall: get item: {:?}", item);
+
             // let label: AsyncMessageLabel = AsyncMessageLabel::from(item.msg_info);
             // match label {
             //     AsyncMessageLabel::RISCVPageGetAddress => {
@@ -316,10 +296,9 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
             // }
         } else {
             new_buffer.recv_reply_status.store(false, SeqCst);
-            crate::device::taic::interface::register_receiver(2, 0, cid.0 as usize,true,true);
             // coroutine_wake(&cid);
             yield_now().await;
-            debug_println!("wake");
+            // debug_println!("wake");
         }
     }
 }
@@ -407,9 +386,9 @@ pub async fn sel4_call_with_item(recv: &SenderID, vec: u32, item: &IPCItem) -> R
 
     //阻塞等回复
     yield_now().await;
-    unsafe { TEST_CLOCK.start() };
+    new_buffer.idx_allocator.release(idx);
     // debug_println!("[call{:?}] waked",coroutine_get_current().0);
-    unsafe { TEST_CLOCK.start() };
+    // unsafe { TEST_CLOCK.start() };
     Ok(new_buffer.data[idx])
 }
 
