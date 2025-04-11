@@ -145,7 +145,7 @@ async fn client_call_test(sender_id: SenderID, msg: u64) {
             // debug_println!("get here???7");
             if let Ok(_reply) = sel4_call_with_item(&sender_id, 0, &item).await {
                 // debug_println!("[client] register receiver vec:{:?} handler:{:?}",vec, cid.0);
-                TEST_CLOCK.stop();
+                // TEST_CLOCK.stop();
                 SUCESS_NUM = SUCESS_NUM + 1;
                 if SUCESS_NUM % 256 == 0 {
                     debug_println!("[client{:?}] success num:{:?}", cid.0, SUCESS_NUM);
