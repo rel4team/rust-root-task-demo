@@ -261,7 +261,7 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
     #[thread_local]
     static mut REPLY_COUNT: usize = 0;
     let new_buffer = NewBuffer::from_ptr(new_buffer_ptr);
-    crate::device::taic::interface::register_receiver(0, 0, cid.0 as usize,true,true);
+    crate::device::taic::interface::register_receiver(0, 0, cid.0 as usize,true,false);
     loop {
         if let Some(idx) = new_buffer.res_items.get_first_idx() {
             // debug_println!("recv_reply_coroutine_async_syscall: get idx: {:?} cid: {:?}", idx,new_buffer.data[idx].cid.0);
@@ -295,6 +295,7 @@ pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num
             //     }
             // }
         } else {
+            crate::device::taic::interface::register_receiver(0, 0, cid.0 as usize,true,false);
             new_buffer.recv_reply_status.store(false, SeqCst);
             // coroutine_wake(&cid);
             yield_now().await;

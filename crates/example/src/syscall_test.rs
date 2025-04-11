@@ -479,13 +479,16 @@ async fn async_memery_single_test(frame: LocalCPtr<_4KPage>, vaddr: usize) {
     let vspace = sel4::BootInfo::init_thread_vspace();
     let cid = coroutine_get_current();
     let vec = if let Some(res) = alloc_vec() {
-        register_receiver(0 as usize, res, cid.0 as usize, true, true);
+        // register_receiver(0 as usize, res, cid.0 as usize, true, true);
         res
     } else {
         0
     };
     for i in 0..EPOCH {
         unsafe { TEST_CLOCK.start() };
+        if vec !=0 {
+            register_receiver(0 as usize, vec, cid.0 as usize, true, false);
+        }
         syscall_riscv_page_map(
             frame.cptr(),
             vspace.cptr(),
@@ -494,6 +497,9 @@ async fn async_memery_single_test(frame: LocalCPtr<_4KPage>, vaddr: usize) {
             VMAttributes::default().into_inner() as usize,
             vec
         ).await;
+        if vec !=0 {
+            register_receiver(0 as usize, vec, cid.0 as usize, true, false);
+        }
         // debug_println!("{:?} ok1",cid.0);
         unsafe { TEST_CLOCK.start() };
         syscall_riscv_page_unmap(frame.cptr(),vec).await;

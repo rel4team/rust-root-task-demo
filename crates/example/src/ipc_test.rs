@@ -21,7 +21,6 @@ use spin::Mutex;
 // use uintr::{register_receiver, register_sender, uipi_send};
 use crate::async_lib::{
     recv_reply_coroutine, register_recv_cid, register_sender_buffer, register_sender_buffer2, seL4_Call, sel4_call_with_item, uintr_handler, wake_recv_coroutine, yield_now, AsyncArgs, SenderID, TEST_CLOCK, TEST_TAIC_SEND_SIGNAL, UINT_TRIGGER
-    recv_reply_coroutine, register_recv_cid, register_sender_buffer, register_sender_buffer2, seL4_Call, sel4_call_with_item, uintr_handler, wake_recv_coroutine, yield_now, AsyncArgs, SenderID, TEST_CLOCK, TEST_TAIC_SEND_SIGNAL, UINT_TRIGGER
 };
 use crate::device::taic::interface::{
     alloc_receiver, alloc_vec, free_vec, register_receiver, register_sender,
