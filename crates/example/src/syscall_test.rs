@@ -1,4 +1,4 @@
-use crate::async_lib::recv_reply_coroutine_async_syscall;
+use crate::async_lib::{recv_reply_coroutine_async_syscall, TestClock, TEST_CLOCK, TEST_TAIC_SEND_SIGNAL};
 use crate::async_lib::{AsyncArgs, SUBMIT_SYSCALL_CNT, UINT_TRIGGER};
 use crate::device::taic::interface::{
     alloc_receiver, alloc_vec, register_receiver, register_sender, register_usoft_handler
@@ -417,16 +417,21 @@ fn run_performance_test_all() {
     coroutine_run_until_complete();
     let end = get_clock() as usize;
     let time = end - start;
-    debug_println!(
-        "\nAsyncMemoryAllocator: Test Finish!\nTime Sum: {:?}, Average: {:?}",
-        time,
-        time / MAX_PAGE_NUM / EPOCH
-    );
-    debug_println!(
-        "syscall invoke count: {:?}, UIntr trigger: {}",
-        unsafe { SUBMIT_SYSCALL_CNT },
-        unsafe { UINT_TRIGGER }
-    );
+    unsafe{
+        debug_println!(
+            "\nAsyncMemoryAllocator: Test Finish!\nTime Sum: {:?}, Average: {:?}, Call Time sum:{:?},Average:{:?}",
+            time,
+            time / MAX_PAGE_NUM / EPOCH,
+            TEST_CLOCK.get_duration(),
+            TEST_CLOCK.get_duration() as usize / MAX_PAGE_NUM / EPOCH
+    
+        );
+        debug_println!(
+            "syscall invoke count: {:?}, UIntr trigger: {}",
+             SUBMIT_SYSCALL_CNT,
+             TEST_TAIC_SEND_SIGNAL
+        );
+    }
 }
 
 fn performance_test_init() {
@@ -480,6 +485,7 @@ async fn async_memery_single_test(frame: LocalCPtr<_4KPage>, vaddr: usize) {
         0
     };
     for i in 0..EPOCH {
+        unsafe { TEST_CLOCK.start() };
         syscall_riscv_page_map(
             frame.cptr(),
             vspace.cptr(),
@@ -487,13 +493,14 @@ async fn async_memery_single_test(frame: LocalCPtr<_4KPage>, vaddr: usize) {
             CapRights::read_write().into_inner().0.inner()[0] as usize,
             VMAttributes::default().into_inner() as usize,
             vec
-        )
-        .await;
-        debug_println!("{:?} ok1",cid.0);
+        ).await;
+        // debug_println!("{:?} ok1",cid.0);
+        unsafe { TEST_CLOCK.start() };
         syscall_riscv_page_unmap(frame.cptr(),vec).await;
         
-        debug_println!("{:?} ok2",cid.0);
+        // debug_println!("{:?} ok2",cid.0);
     }
+    debug_println!("{:?} test ok",cid.0);
 }
 
 async fn async_address_single_test(vaddr: usize) {

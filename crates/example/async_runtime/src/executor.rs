@@ -128,7 +128,8 @@ impl Executor {
     }
 
     pub fn run_until_complete(&mut self) {
-        while !self.is_empty() {
+        // while !self.is_empty() {
+        while self.coroutine_num > 1 {
             self.run_until_blocked();
         }
     }
