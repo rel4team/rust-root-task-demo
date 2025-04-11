@@ -28,7 +28,7 @@ static mut LQ_MANAGER: Option<LQManager> = None;
 
 pub fn alloc_receiver(tcb: TCB, ntfn: Notification, hart_id: usize) -> Result<usize, Error> {
     // super::init_utrap_handler();
-    ntfn.register_receiver(tcb.cptr())?; //获取一个buffer?
+    ntfn.register_receiver(tcb.cptr())?; //
     let mut recv_idx = 0; //
     //闭包操作buffer
     with_ipc_buffer(|buffer| {

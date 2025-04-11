@@ -366,7 +366,7 @@ async fn test_async_riscv_page_unmap(obj_allocator: &Mutex<ObjectAllocator>) {
 
 const START_ADDR: usize = 0x200_0000;
 const PAGE_SIZE: usize = 0x1000;
-const MAX_PAGE_NUM_BITS: usize = 9;
+const MAX_PAGE_NUM_BITS: usize = 1;
 const MAX_PAGE_NUM: usize = 1 << MAX_PAGE_NUM_BITS;
 const EPOCH: usize = 10;
 
