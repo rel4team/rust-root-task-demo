@@ -95,11 +95,11 @@ fn main(bootinfo: &sel4::BootInfo) -> sel4::Result<!> {
     image_utils::UserImageUtils.init(bootinfo);
     GLOBAL_OBJ_ALLOCATOR.lock().init(bootinfo);
     // fuse_test(bootinfo)?;
-    // async_ipc_test(bootinfo)?;
+    async_ipc_test(bootinfo)?;
     // sync_ipc_test(bootinfo)?;
     // net_stack_test(bootinfo)?;
     // smoltcp_poll_test(bootinfo);
-    async_syscall_test(bootinfo)?;
+    // async_syscall_test(bootinfo)?;
     debug_println!("TEST_PASS");
 
     sel4::BootInfo::init_thread_tcb().tcb_suspend()?;

@@ -30,7 +30,7 @@ use crate::matrix::matrix_test;
 use crate::object_allocator::GLOBAL_OBJ_ALLOCATOR;
 
 static SEND_NUM: usize = 4096;
-static COROUTINE_NUM: usize = 16;
+static COROUTINE_NUM: usize = 64;
 static mut MUTE_SEND_NUM: usize = SEND_NUM;
 const MATRIX_SIZE: usize = 4;
 static mut SUCESS_NUM: usize = 0;
@@ -194,12 +194,15 @@ async fn recv_req_coroutine(arg: usize) {
             if req_item.vec != 0 {
                 send_signal(client_process_id, req_item.vec as usize);
                 // debug_println!("[server] wake coroutine recv:{:?}, vec:{:?}",client_process_id,item.vec);
-            } else if new_buffer.recv_reply_status.load(SeqCst) == false {
-                // wake dispatcher
+            } else {
                 new_buffer.res_items.write_free_idx(idx);
-                new_buffer.recv_reply_status.store(true, SeqCst);
-                send_signal(client_process_id, 0);
-                // debug_println!("[server] wake dispatcher recv:{:?}, vec:{:?}",client_process_id,item.vec);
+                if new_buffer.recv_reply_status.load(SeqCst) == false {
+                    // wake dispatcher
+                    
+                    new_buffer.recv_reply_status.store(true, SeqCst);
+                    send_signal(client_process_id, 0);
+                    // debug_println!("[server] wake dispatcher recv:{:?}, vec:{:?}",client_process_id,item.vec);
+                }
             }
             unsafe {
                 REQ_NUM += 1;
