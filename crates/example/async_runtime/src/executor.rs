@@ -63,7 +63,7 @@ impl Executor {
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.coroutine_num == 0
+        self.coroutine_num == 1
     }
 
     #[inline]
@@ -127,7 +127,8 @@ impl Executor {
         cid.release();
     }
 
-    pub fn run_until_complete(&mut self) {
+    pub fn 
+    run_until_complete(&mut self) {
         // while !self.is_empty() {
         while self.coroutine_num > 1 {
             self.run_until_blocked();

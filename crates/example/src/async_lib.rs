@@ -258,11 +258,10 @@ pub async fn recv_reply_coroutine(arg: usize, reply_num: usize) {
 //在主线程下
 pub async fn recv_reply_coroutine_async_syscall(new_buffer_ptr: usize, reply_num: usize) {
     let cid = coroutine_get_current();
-    debug_println!("dispatcher cid: {:?}", cid);
     #[thread_local]
     static mut REPLY_COUNT: usize = 0;
     let new_buffer = NewBuffer::from_ptr(new_buffer_ptr);
-    crate::device::taic::interface::register_receiver(0, 0, cid.0 as usize,true,true);
+    crate::device::taic::interface::register_receiver(0, 0, cid.0 as usize, false,true);
     loop {
         if let Some(idx) = new_buffer.res_items.get_first_idx() {
             // debug_println!("recv_reply_coroutine_async_syscall: get idx: {:?} cid: {:?}", idx,new_buffer.data[idx].cid.0);
@@ -377,11 +376,11 @@ pub async fn sel4_call_with_item(recv: &SenderID, vec: u32, item: &IPCItem) -> R
         new_buffer.recv_req_status.store(true, SeqCst);
         // debug_println!("[call{:?}] recv:{:?}, vec:{:?}",cid,*recv,vec);
         crate::device::taic::interface::send_signal(*recv as usize, vec as usize);
-        unsafe { TEST_CLOCK.stop() };
-        unsafe { TEST_TAIC_SEND_SIGNAL += 1 };
+        // unsafe { TEST_CLOCK.stop() };
+        // unsafe { TEST_TAIC_SEND_SIGNAL += 1 };
     }
     else{
-        unsafe { TEST_CLOCK.stop() };
+        // unsafe { TEST_CLOCK.stop() };
     }
     // debug_println!("[call{:?}] yield",coroutine_get_current().0);
 
@@ -620,7 +619,7 @@ pub async fn seL4_RISCV_PageTable_Map(
 pub async fn seL4_RISCV_PageTable_Unmap(service_cptr: CPtr) -> Result<MessageInfo, ()> {
     let sender_id = 63;
     let mut syscall_item = IPCItem::new();
-    let cid = coroutine_get_current();
+    let cid: CoroutineId = coroutine_get_current();
     syscall_item.cid = cid;
     syscall_item.msg_info = AsyncMessageLabel::RISCVPageTableUnmap.into();
     syscall_item.extend_msg[0] = service_cptr.bits() as u16;

@@ -110,6 +110,7 @@ pub fn alloc_vec() -> Option<usize> {
         LQ_MANAGER.as_mut().unwrap().irq_allocator.alloc()
     }
 }
+
 #[inline]
 pub fn free_vec(vec: usize) {
     unsafe {

@@ -29,6 +29,8 @@ use crate::async_lib::{
 use crate::image_utils::UserImageUtils;
 use crate::memory_allocator::{self, AsyncMemoryAllocator, SyncMemoryAllocator};
 use crate::object_allocator::{self, ObjectAllocator, GLOBAL_OBJ_ALLOCATOR};
+use async_runtime::coroutine_is_empty;
+use sel4::r#yield;
 //static mut NEW_BUFFER: NewBuffer = NewBuffer::new();
 
 const REPLY_NUM: usize = TEST_REPLY_NUM;
@@ -368,7 +370,7 @@ const START_ADDR: usize = 0x200_0000;
 const PAGE_SIZE: usize = 0x1000;
 const MAX_PAGE_NUM_BITS: usize = 1;
 const MAX_PAGE_NUM: usize = 1 << MAX_PAGE_NUM_BITS;
-const EPOCH: usize = 10;
+const EPOCH: usize = 100;
 
 static mut FRAMES: [LocalCPtr<_4KPage>; MAX_PAGE_NUM] = [LocalCPtr::from_bits(0); MAX_PAGE_NUM];
 
@@ -402,28 +404,31 @@ fn run_performance_test(is_sync: bool) {
 fn run_performance_test_all() {
     performance_test_init();
     let start = get_clock() as usize;
-    // sync_memory_test();
+    sync_memory_test();
     // sync_test_address(new_buffer_ptr);
     let end = get_clock() as usize;
     let time = end - start;
     debug_println!(
         "\nSyncMemoryAllocator: Test Finish!\nTime Sum: {:?}, Average: {:?}",
         time,
-        time / MAX_PAGE_NUM / EPOCH
+        time / MAX_PAGE_NUM / EPOCH / 2
     );
     debug_println!("syscall invoke count: {:?}", TEST_REPLY_NUM);
     async_memory_test();
-    let start = get_clock() as usize;
-    coroutine_run_until_complete();
+    let start: usize = get_clock() as usize;
+    while !coroutine_is_empty() {
+        coroutine_run_until_blocked();
+        r#yield();
+    }
     let end = get_clock() as usize;
     let time = end - start;
     unsafe{
         debug_println!(
             "\nAsyncMemoryAllocator: Test Finish!\nTime Sum: {:?}, Average: {:?}, Call Time sum:{:?},Average:{:?}",
             time,
-            time / MAX_PAGE_NUM / EPOCH,
-            TEST_CLOCK.get_duration(),
-            TEST_CLOCK.get_duration() as usize / MAX_PAGE_NUM / EPOCH
+            time / MAX_PAGE_NUM / EPOCH / 2,
+            0,
+            0
     
         );
         debug_println!(
@@ -479,13 +484,13 @@ async fn async_memery_single_test(frame: LocalCPtr<_4KPage>, vaddr: usize) {
     let vspace = sel4::BootInfo::init_thread_vspace();
     let cid = coroutine_get_current();
     let vec = if let Some(res) = alloc_vec() {
-        register_receiver(0 as usize, res, cid.0 as usize, true, true);
+        register_receiver(0 as usize, res, cid.0 as usize, false, true);
         res
     } else {
         0
     };
     for i in 0..EPOCH {
-        unsafe { TEST_CLOCK.start() };
+        // unsafe { TEST_CLOCK.start() };
         syscall_riscv_page_map(
             frame.cptr(),
             vspace.cptr(),
@@ -495,12 +500,12 @@ async fn async_memery_single_test(frame: LocalCPtr<_4KPage>, vaddr: usize) {
             vec
         ).await;
         // debug_println!("{:?} ok1",cid.0);
-        unsafe { TEST_CLOCK.start() };
+        // unsafe { TEST_CLOCK.start() };
         syscall_riscv_page_unmap(frame.cptr(),vec).await;
         
         // debug_println!("{:?} ok2",cid.0);
     }
-    debug_println!("{:?} test ok",cid.0);
+    // debug_println!("{:?} test ok",cid.0);
 }
 
 async fn async_address_single_test(vaddr: usize) {
